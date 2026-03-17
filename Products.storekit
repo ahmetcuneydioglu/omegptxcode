@@ -1,0 +1,129 @@
+{
+  "appPolicies" : {
+    "eula" : "",
+    "policies" : [
+      {
+        "locale" : "en_US",
+        "policyText" : "",
+        "policyURL" : ""
+      }
+    ]
+  },
+  "identifier" : "48AE1BDC",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "4.99",
+      "familyShareable" : false,
+      "internalID" : "3754D0D8",
+      "localizations" : [
+        {
+          "description" : "",
+          "displayName" : "",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.omegpt.gem120",
+      "referenceName" : "gem1",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "15.99",
+      "familyShareable" : false,
+      "internalID" : "37FECD89",
+      "localizations" : [
+        {
+          "description" : "",
+          "displayName" : "",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.omegpt.gem400",
+      "referenceName" : "gem2",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "31.99",
+      "familyShareable" : false,
+      "internalID" : "10161ABA",
+      "localizations" : [
+        {
+          "description" : "",
+          "displayName" : "",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.omegpt.gem820",
+      "referenceName" : "gem3",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "62.99",
+      "familyShareable" : false,
+      "internalID" : "805CD9D0",
+      "localizations" : [
+        {
+          "description" : "",
+          "displayName" : "",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.omegpt.gem1700",
+      "referenceName" : "gem4",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "157.99",
+      "familyShareable" : false,
+      "internalID" : "1CFA93A6",
+      "localizations" : [
+        {
+          "description" : "",
+          "displayName" : "",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.omegpt.gem4500",
+      "referenceName" : "gem5",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "332.99",
+      "familyShareable" : false,
+      "internalID" : "EC5BCB62",
+      "localizations" : [
+        {
+          "description" : "",
+          "displayName" : "",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.omegpt.gem10000",
+      "referenceName" : "gem6",
+      "type" : "Consumable"
+    }
+  ],
+  "settings" : {
+    "_askToBuyEnabled" : false,
+    "_billingGracePeriodEnabled" : false,
+    "_billingIssuesEnabled" : false,
+    "_disableDialogs" : false,
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_renewalBillingIssuesEnabled" : false,
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+
+    ],
+    "_timeRate" : 0
+  },
+  "subscriptionGroups" : [
+
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}
