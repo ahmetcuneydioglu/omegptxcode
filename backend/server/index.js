@@ -28,7 +28,8 @@ const allowedOrigins = ALLOWED_ORIGINS;
 app.get('/healthz', (req, res) => {
   res.status(200).json({
     ok: true,
-    deployMarker: 'omegptnative-git-test-2026-03-20'
+    deployMarker: 'omegptnative-git-test-2026-03-20',
+    deployVersion: 'v2-health-check'
   });
 });
 
