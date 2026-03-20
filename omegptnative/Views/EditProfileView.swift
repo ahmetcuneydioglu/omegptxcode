@@ -8,6 +8,7 @@ private let pageBg = Color(.systemGroupedBackground)
 struct EditProfileView: View {
     var appUserStore: AppUserStore
     @Environment(\.dismiss) private var dismiss
+    private var appState = AppState.shared
 
     @State private var draftName: String = ""
     @State private var draftEmail: String = ""
@@ -522,13 +523,17 @@ struct EditProfileView: View {
         isSaving = true
         defer { isSaving = false }
         let dateStr = birthDateDisplay
-        await appUserStore.updateProfile(
+        let success = await appUserStore.updateProfile(
             name: draftName.isEmpty ? nil : draftName,
             bio: draftBio.isEmpty ? nil : draftBio,
             interests: draftInterests,
             gender: draftGender,
             birthDate: dateStr
         )
+        if !success {
+            syncFromStore()
+            appState.showTimedToast(appUserStore.authErrorMessage ?? "Profil guncellenemedi.")
+        }
     }
 
     private func loadAvatar(_ item: PhotosPickerItem?) async {

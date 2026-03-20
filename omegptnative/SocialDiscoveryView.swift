@@ -6,6 +6,7 @@ struct SocialDiscoveryView: View {
     var appUserStore: AppUserStore
     let onClose: () -> Void
     let onLogout: () -> Void
+    private var appState = AppState.shared
 
     @State private var isEditing = false
     @State private var showInterestPicker = false
@@ -75,8 +76,13 @@ struct SocialDiscoveryView: View {
             InterestPickerView(selectedInterests: $selectedInterests)
                 .preferredColorScheme(.dark)
                 .onDisappear {
+                    let updatedInterests = Array(selectedInterests).sorted()
                     Task {
-                        await appUserStore.updateProfile(interests: Array(selectedInterests).sorted())
+                        let success = await appUserStore.updateProfile(interests: updatedInterests)
+                        if !success {
+                            syncDraftState()
+                            appState.showTimedToast(appUserStore.authErrorMessage ?? "Ilgi alanlari kaydedilemedi.")
+                        }
                     }
                 }
         }

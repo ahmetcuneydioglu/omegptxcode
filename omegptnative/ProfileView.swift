@@ -6,6 +6,7 @@ struct ProfileView: View {
     var appUserStore: AppUserStore
     let onClose: () -> Void
     let onLogout: () -> Void
+    private var appState = AppState.shared
 
     @State private var profileVM = ProfileViewModel()
     @State private var selectedTab = 0
@@ -568,7 +569,14 @@ struct ProfileView: View {
 
                 NavigationLink(destination: InterestPickerView(selectedInterests: $selectedInterests)
                     .onDisappear {
-                        Task { await appUserStore.updateProfile(interests: Array(selectedInterests)) }
+                        let updatedInterests = Array(selectedInterests).sorted()
+                        Task {
+                            let success = await appUserStore.updateProfile(interests: updatedInterests)
+                            if !success {
+                                syncDrafts()
+                                appState.showTimedToast(appUserStore.authErrorMessage ?? "Ilgi alanlari kaydedilemedi.")
+                            }
+                        }
                     }
                 ) {
                     ZStack {
