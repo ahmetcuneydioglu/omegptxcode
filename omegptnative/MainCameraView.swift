@@ -415,8 +415,10 @@ struct MainCameraView: View {
     }
 
     private func startMatching() {
-        guard !socketService.isFindPartnerLocked else {
-            print("⏳ startMatching ignored: find_partner is locked")
+        guard !socketService.isFindPartnerLocked,
+              !socketService.isAwaitingSearchStart,
+              !(socketService.isSearching && socketService.activePartnerId == nil) else {
+            print("⏳ startMatching ignored: matchmaking already pending/searching")
             return
         }
 
@@ -439,8 +441,10 @@ struct MainCameraView: View {
     }
 
     private func skipToNextPartner() {
-        guard !socketService.isFindPartnerLocked else {
-            print("⏳ skipToNextPartner ignored: find_partner is locked")
+        guard !socketService.isFindPartnerLocked,
+              !socketService.isAwaitingSearchStart,
+              !(socketService.isSearching && socketService.activePartnerId == nil) else {
+            print("⏳ skipToNextPartner ignored: matchmaking already pending/searching")
             return
         }
 

@@ -8,15 +8,11 @@ struct SocialDiscoveryView: View {
     let onLogout: () -> Void
 
     @State private var isEditing = false
+    @State private var showInterestPicker = false
     @State private var draftBio = ""
     @State private var selectedInterests: Set<String> = []
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var localPhotoData: [Data] = []
-
-    private let availableInterests = [
-        "Muzik", "Spor", "Sinema", "Seyahat", "Teknoloji",
-        "Sanat", "Kahve", "Yoga", "Oyun", "Sokak Yemekleri"
-    ]
 
     init(
         appUserStore: AppUserStore,
@@ -69,6 +65,20 @@ struct SocialDiscoveryView: View {
             if !isEditing {
                 syncDraftState()
             }
+        }
+        .onChange(of: appUserStore.currentUser?.interests) { _, _ in
+            if !isEditing {
+                syncDraftState()
+            }
+        }
+        .fullScreenCover(isPresented: $showInterestPicker) {
+            InterestPickerView(selectedInterests: $selectedInterests)
+                .preferredColorScheme(.dark)
+                .onDisappear {
+                    Task {
+                        await appUserStore.updateProfile(interests: Array(selectedInterests).sorted())
+                    }
+                }
         }
     }
 
@@ -317,46 +327,53 @@ struct SocialDiscoveryView: View {
             HStack {
                 sectionTitle("Ilgi Alanlari")
                 Spacer(minLength: 0)
-                if !selectedInterests.isEmpty {
-                    Text("+15%")
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color.green.opacity(0.9))
-                }
+                Text("Seçili \(selectedInterests.count) / 5")
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.72))
             }
 
-            FlowLayout(availableInterests, spacing: 10, lineSpacing: 10) { interest in
-                let isSelected = selectedInterests.contains(interest)
+            Button {
+                showInterestPicker = true
+            } label: {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("5'e kadar seçim yaparak ortak ilgi alanları olan arkadaşlarla tanışın. Profilinizde görüneceklerdir.")
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.5))
+                        .multilineTextAlignment(.leading)
 
-                Button {
-                    guard isEditing else { return }
-                    toggleInterest(interest)
-                } label: {
-                    Text(interest)
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background {
-                            Capsule()
-                                .fill(isSelected ? AnyShapeStyle(
-                                    LinearGradient(
-                                        colors: [
-                                            Color(red: 0.33, green: 0.55, blue: 1.0),
-                                            Color(red: 0.49, green: 0.34, blue: 1.0)
-                                        ],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                ) : AnyShapeStyle(Color.white.opacity(0.06)))
+                    if selectedInterests.isEmpty {
+                        Text("İlgi alanları seç")
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.78))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(
+                                Capsule()
+                                    .fill(Color.white.opacity(0.06))
+                            )
+                    } else {
+                        FlowLayout(Array(selectedInterests).sorted(), spacing: 8, lineSpacing: 10) { interest in
+                            Text(interest)
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.96))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                                .background(
+                                    Capsule()
+                                        .fill(Color.white.opacity(0.06))
+                                )
                         }
-                        .overlay(
-                            Capsule()
-                                .stroke(Color.white.opacity(isSelected ? 0 : 0.08), lineWidth: 0.8)
-                        )
+                    }
                 }
-                .buttonStyle(.plain)
-                .disabled(!isEditing)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(18)
+                .background(glassCard(cornerRadius: 20))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(Color.white.opacity(0.08), lineWidth: 0.8)
+                )
             }
+            .buttonStyle(.plain)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -553,14 +570,6 @@ struct SocialDiscoveryView: View {
     private func syncDraftState() {
         draftBio = appUserStore.currentUser?.bio ?? ""
         selectedInterests = Set(appUserStore.currentUser?.interests ?? [])
-    }
-
-    private func toggleInterest(_ interest: String) {
-        if selectedInterests.contains(interest) {
-            selectedInterests.remove(interest)
-        } else {
-            selectedInterests.insert(interest)
-        }
     }
 
     private func loadSelectedPhotos(from items: [PhotosPickerItem]) async {

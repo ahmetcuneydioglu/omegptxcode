@@ -32,9 +32,9 @@ final class StoreViewModel {
 
     let dailyRewards: [Int] = [5, 10, 15, 20, 25, 30, 50]
 
-    private let baseURL = "https://videochat-1qxi.onrender.com"
     private let storeKitManager = StoreKitManager.shared
     private let appUserStore = AppUserStore.shared
+    private let networkManager = NetworkManager()
     private var currentDbUserId: String?
     private var countdownTimer: Timer?
 
@@ -52,8 +52,10 @@ final class StoreViewModel {
         defer { isLoading = false }
 
         do {
-            let json = try await postJSON(path: "/api/store/status", body: ["dbUserId": dbUserId])
+            let json = try await networkManager.postJSON(path: "/api/store/status")
             applyStoreStatus(json)
+        } catch NetworkError.unauthorized {
+            appUserStore.handleUnauthorized()
         } catch {
             print("⚠️ fetchStoreStatus failed: \(error.localizedDescription)")
         }
@@ -97,7 +99,8 @@ final class StoreViewModel {
             // CRITICAL: Backend verification right after Apple success.
             let backendJSON = try await verifyPurchaseOnBackend(
                 productId: purchaseResult.productId,
-                transactionId: purchaseResult.transactionId
+                transactionId: purchaseResult.transactionId,
+                receiptData: purchaseResult.receiptData
             )
 
             let isVerified = boolValue(in: backendJSON, keys: ["success", "ok"], defaultValue: false)
@@ -131,6 +134,16 @@ final class StoreViewModel {
                 purchaseErrorMessage = error.localizedDescription
             }
             print("⚠️ purchasePackage failed: \(error.localizedDescription)")
+        } catch NetworkError.unauthorized {
+            purchaseErrorMessage = "Oturumun sona erdi. Lutfen tekrar giris yap."
+            appUserStore.handleUnauthorized()
+        } catch NetworkError.serverError(let message) {
+            if message.localizedCaseInsensitiveContains("duplicate") {
+                purchaseErrorMessage = "Bu satin alma daha once dogrulanmis."
+            } else {
+                purchaseErrorMessage = message
+            }
+            print("⚠️ purchasePackage backend error: \(message)")
         } catch {
             purchaseErrorMessage = error.localizedDescription
             print("⚠️ purchasePackage failed: \(error.localizedDescription)")
@@ -143,9 +156,11 @@ final class StoreViewModel {
         defer { isLoading = false }
 
         do {
-            let json = try await postJSON(path: "/api/store/claim", body: ["dbUserId": dbUserId])
+            let json = try await networkManager.postJSON(path: "/api/store/claim")
             applyStoreStatus(json)
             claimPulseID = UUID()
+        } catch NetworkError.unauthorized {
+            appUserStore.handleUnauthorized()
         } catch {
             print("⚠️ claimDailyReward failed: \(error.localizedDescription)")
         }
@@ -264,57 +279,28 @@ final class StoreViewModel {
         return defaultValue
     }
 
-    func verifyPurchaseOnBackend(productId: String, transactionId: UInt64) async throws -> [String: Any] {
-        guard let dbUserId = currentDbUserId, !dbUserId.isEmpty else {
+    func verifyPurchaseOnBackend(
+        productId: String,
+        transactionId: UInt64,
+        receiptData: String
+    ) async throws -> [String: Any] {
+        guard currentDbUserId != nil else {
             throw NetworkError.unauthorized
         }
 
         print("DEBUG: Sending purchase to backend for product: \(productId)")
 
-        guard let url = URL(string: "https://videochat-1qxi.onrender.com/api/store/verify-purchase") else {
-            throw NetworkError.invalidURL
-        }
-
         let body: [String: Any] = [
-            "dbUserId": dbUserId,
+            "platform": "ios",
             "productId": productId,
-            "transactionId": transactionId
+            "transactionId": String(transactionId),
+            "receiptData": receiptData
         ]
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else { throw NetworkError.invalidResponse }
-        guard (200...299).contains(httpResponse.statusCode) else {
-            let errorText = String(data: data, encoding: .utf8) ?? "verify-purchase failed"
-            throw NetworkError.serverError(errorText)
-        }
-
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw NetworkError.invalidResponse
-        }
-        return json
-    }
-
-    private func postJSON(path: String, body: [String: Any]) async throws -> [String: Any] {
-        guard let url = URL(string: "\(baseURL)\(path)") else { throw NetworkError.invalidURL }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else { throw NetworkError.invalidResponse }
-        guard (200...299).contains(httpResponse.statusCode) else {
-            throw NetworkError.serverError("Store request failed (\(httpResponse.statusCode))")
-        }
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw NetworkError.invalidResponse
-        }
-        return json
+        return try await networkManager.postJSON(
+            path: "/api/store/verify-purchase",
+            body: body
+        )
     }
 
     private static func buildDynamicPackages() -> [StorePackage] {

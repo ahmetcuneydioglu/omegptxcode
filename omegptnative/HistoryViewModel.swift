@@ -8,7 +8,7 @@ final class HistoryViewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
 
-    private let baseURL = "https://videochat-1qxi.onrender.com"
+    private let networkManager = NetworkManager()
     private var currentUserId: String?
 
     func fetchHistory(currentUserId: String?) async {
@@ -26,36 +26,7 @@ final class HistoryViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            guard let url = URL(string: "\(baseURL)/api/users/\(currentUserId)/history") else {
-                errorMessage = "History URL is invalid."
-                return
-            }
-
-            print("HistoryViewModel: fetching history for userId=\(currentUserId)")
-            print("HistoryViewModel: GET \(url.absoluteString)")
-            let (data, response) = try await URLSession.shared.data(from: url)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                errorMessage = "History request failed."
-                print("History Fetch Error: response is not HTTPURLResponse")
-                return
-            }
-
-            print("HistoryViewModel: statusCode=\(httpResponse.statusCode)")
-
-            if httpResponse.statusCode == 204 {
-                items = []
-                errorMessage = nil
-                print("HistoryViewModel: empty history response (204 No Content)")
-                return
-            }
-
-            guard 200..<300 ~= httpResponse.statusCode else {
-                let rawJSON = String(data: data, encoding: .utf8) ?? "<non-utf8 response>"
-                errorMessage = "History request failed."
-                print("History Fetch Error: statusCode=\(httpResponse.statusCode)")
-                print("History Fetch Response: \(rawJSON)")
-                return
-            }
+            let data = try await networkManager.getData(path: "/api/users/\(currentUserId)/history")
 
             if data.isEmpty {
                 items = []
@@ -67,6 +38,9 @@ final class HistoryViewModel: ObservableObject {
             items = try decodeHistory(from: data)
             errorMessage = nil
             print("HistoryViewModel: loaded \(items.count) history items")
+        } catch NetworkError.unauthorized {
+            AppUserStore.shared.handleUnauthorized()
+            errorMessage = "Oturum suresi doldu."
         } catch {
             print("History Fetch Error: \(error)")
             if let decodingError = error as? DecodingError {
@@ -91,39 +65,19 @@ final class HistoryViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            guard let url = URL(string: "\(baseURL)/api/users/\(currentUserId)/following") else {
-                errorMessage = "Following URL is invalid."
-                return
-            }
-
-            print("HistoryViewModel: fetching following for userId=\(currentUserId)")
-            print("HistoryViewModel: GET \(url.absoluteString)")
-            let (data, response) = try await URLSession.shared.data(from: url)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                errorMessage = "Following request failed."
-                print("Following Fetch Error: response is not HTTPURLResponse")
-                return
-            }
-
-            print("HistoryViewModel: following statusCode=\(httpResponse.statusCode)")
-
-            if httpResponse.statusCode == 204 || data.isEmpty {
+            let data = try await networkManager.getData(path: "/api/users/\(currentUserId)/following")
+            if data.isEmpty {
                 followingUsers = []
                 errorMessage = nil
-                return
-            }
-
-            guard 200..<300 ~= httpResponse.statusCode else {
-                let rawJSON = String(data: data, encoding: .utf8) ?? "<non-utf8 response>"
-                errorMessage = "Following request failed."
-                print("Following Fetch Error: statusCode=\(httpResponse.statusCode)")
-                print("Following Fetch Response: \(rawJSON)")
                 return
             }
 
             followingUsers = try decodeFollowing(from: data)
             errorMessage = nil
             print("HistoryViewModel: loaded \(followingUsers.count) following users")
+        } catch NetworkError.unauthorized {
+            AppUserStore.shared.handleUnauthorized()
+            errorMessage = "Oturum suresi doldu."
         } catch {
             print("Following Fetch Error: \(error)")
             errorMessage = "Following list could not be loaded."
@@ -139,28 +93,13 @@ final class HistoryViewModel: ObservableObject {
             print("HistoryViewModel: toggleFollow aborted. partnerId missing.")
             return
         }
-        guard let url = URL(string: "\(baseURL)/api/users/follow") else {
-            print("HistoryViewModel: follow URL invalid.")
-            return
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let payload: [String: Any] = [
-            "userId": currentUserId,
             "followingId": partnerId
         ]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
         print("HistoryViewModel: toggleFollow payload=\(payload)")
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse, 200..<300 ~= httpResponse.statusCode else {
-                let raw = String(data: data, encoding: .utf8) ?? "<non-utf8 response>"
-                print("HistoryViewModel: follow request failed. response=\(raw)")
-                return
-            }
+            _ = try await networkManager.postJSON(path: "/api/users/follow", body: payload)
 
             for index in items.indices where items[index].partner.id == partnerId {
                 items[index].isFollowing.toggle()
@@ -169,6 +108,8 @@ final class HistoryViewModel: ObservableObject {
                 followingUsers[index].isFollowing.toggle()
             }
             followingUsers.removeAll { $0.id == partnerId && !$0.isFollowing }
+        } catch NetworkError.unauthorized {
+            AppUserStore.shared.handleUnauthorized()
         } catch {
             print("HistoryViewModel: toggleFollow error: \(error)")
         }

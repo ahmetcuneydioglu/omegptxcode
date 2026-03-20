@@ -2,8 +2,9 @@ import Foundation
 
 final class NetworkManager {
     private let baseURL = "https://videochat-1qxi.onrender.com"
+    private var accessToken: String? { AuthManager.shared.accessToken }
 
-    func socialLogin(idToken: String) async throws -> User {
+    func socialLogin(idToken: String) async throws -> AuthSession {
         guard let url = URL(string: "\(baseURL)/api/auth/social-login") else {
             throw NetworkError.invalidURL
         }
@@ -25,13 +26,7 @@ final class NetworkManager {
 
         switch httpResponse.statusCode {
         case 200:
-            do {
-                let user = try JSONDecoder().decode(User.self, from: data)
-                return user
-            } catch {
-                print("🚨 JSON DECODE HATASI: \(error)")
-                throw error
-            }
+            return try decodeAuthSession(from: data)
         case 401:
             throw NetworkError.unauthorized
         default:
@@ -39,5 +34,130 @@ final class NetworkManager {
             let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
             throw NetworkError.serverError(message ?? fallback)
         }
+    }
+
+    func getData(path: String, requiresAuth: Bool = true) async throws -> Data {
+        let request = try makeRequest(path: path, method: "GET", body: nil, requiresAuth: requiresAuth)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        _ = try validate(response: response, data: data)
+        return data
+    }
+
+    func getJSON(path: String, requiresAuth: Bool = true) async throws -> [String: Any] {
+        let request = try makeRequest(path: path, method: "GET", body: nil, requiresAuth: requiresAuth)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let httpResponse = try validate(response: response, data: data)
+
+        if httpResponse.statusCode == 204 || data.isEmpty {
+            return [:]
+        }
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw NetworkError.invalidResponse
+        }
+        return json
+    }
+
+    func postJSON(path: String, body: [String: Any]? = nil, requiresAuth: Bool = true) async throws -> [String: Any] {
+        try await requestJSON(path: path, method: "POST", body: body, requiresAuth: requiresAuth)
+    }
+
+    func requestJSON(
+        path: String,
+        method: String,
+        body: [String: Any]?,
+        requiresAuth: Bool = true
+    ) async throws -> [String: Any] {
+        let request = try makeRequest(path: path, method: method, body: body, requiresAuth: requiresAuth)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let httpResponse = try validate(response: response, data: data)
+
+        if httpResponse.statusCode == 204 || data.isEmpty {
+            return [:]
+        }
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw NetworkError.invalidResponse
+        }
+        return json
+    }
+
+    private func makeRequest(
+        path: String,
+        method: String,
+        body: [String: Any]?,
+        requiresAuth: Bool
+    ) throws -> URLRequest {
+        guard let url = URL(string: "\(baseURL)\(path)") else {
+            throw NetworkError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        if requiresAuth {
+            guard let accessToken, !accessToken.isEmpty else {
+                throw NetworkError.unauthorized
+            }
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        }
+
+        if let body {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        }
+
+        return request
+    }
+
+    @discardableResult
+    private func validate(response: URLResponse, data: Data) throws -> HTTPURLResponse {
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw NetworkError.invalidResponse
+        }
+
+        switch httpResponse.statusCode {
+        case 200...299:
+            return httpResponse
+        case 401:
+            throw NetworkError.unauthorized
+        default:
+            throw NetworkError.serverError(extractServerMessage(from: data) ?? "Server returned status \(httpResponse.statusCode)")
+        }
+    }
+
+    private func decodeAuthSession(from data: Data) throws -> AuthSession {
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw NetworkError.invalidResponse
+        }
+
+        let accessToken = (json["accessToken"] as? String)
+            ?? (json["token"] as? String)
+            ?? (json["jwt"] as? String)
+
+        guard let accessToken, !accessToken.isEmpty else {
+            throw NetworkError.serverError("Access token missing in auth response.")
+        }
+
+        let userPayload = (json["user"] as? [String: Any])
+            ?? (json["data"] as? [String: Any])
+            ?? json
+
+        guard JSONSerialization.isValidJSONObject(userPayload) else {
+            throw NetworkError.invalidResponse
+        }
+
+        let userData = try JSONSerialization.data(withJSONObject: userPayload)
+        let user = try JSONDecoder().decode(User.self, from: userData)
+        return AuthSession(user: user, accessToken: accessToken)
+    }
+
+    private func extractServerMessage(from data: Data) -> String? {
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return (json["message"] as? String)
+                ?? (json["error"] as? String)
+                ?? (json["detail"] as? String)
+        }
+        return String(data: data, encoding: .utf8)
     }
 }

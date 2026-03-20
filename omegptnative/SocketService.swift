@@ -77,8 +77,10 @@ final class SocketService {
     private(set) var outgoingPrivateCallPhase: PrivateCallRequestPhase?
     private(set) var userOnlineStates: [String: UserStatus] = [:]
     private(set) var myStatus: UserStatus = .offline
+    private(set) var isAwaitingSearchStart = false
     private var currentSearchPayload: MatchSearchPayload?
     private var findPartnerUnlockWorkItem: DispatchWorkItem?
+    private var autoRematchWorkItem: DispatchWorkItem?
     private var privateCallPhaseWorkItem: DispatchWorkItem?
     private var lastGemBalanceValue: Int?
     private var lastGemBalanceUpdateAt: Date?
@@ -98,23 +100,25 @@ final class SocketService {
         }
     }
 
-    func connect(dbUserId: String?) {
+    func connect(dbUserId _: String?) {
         #if canImport(SocketIO)
-        print("🔌 Socket connect requested. dbUserId: \(dbUserId ?? "guest")")
+        let token = AuthManager.shared.accessToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        print("🔌 Socket connect requested. authenticated=\(token?.isEmpty == false)")
         disconnect()
+
+        guard let token, !token.isEmpty else {
+            print("⚠️ Socket connect skipped because access token is missing.")
+            return
+        }
 
         guard let url = URL(string: "https://videochat-1qxi.onrender.com") else { return }
 
-        var config: SocketIOClientConfiguration = [
+        let config: SocketIOClientConfiguration = [
             .compress,
             .forceWebsockets(true),
             .reconnects(true),
             .log(true)
         ]
-
-        if let dbUserId = dbUserId, !dbUserId.isEmpty {
-            config.insert(.connectParams(["dbUserId": dbUserId]))
-        }
 
         let manager = SocketManager(socketURL: url, config: config)
         let socket = manager.defaultSocket
@@ -123,15 +127,13 @@ final class SocketService {
         self.socket = socket
 
         registerHandlers(for: socket)
-        socket.connect()
+        socket.connect(withPayload: ["token": token])
         #endif
     }
 
     func disconnect() {
         #if canImport(SocketIO)
-        if let dbUserId = appUserStore.currentUser?.id, !dbUserId.isEmpty {
-            socket?.emit("manual_offline", ["dbUserId": dbUserId])
-        }
+        socket?.emit("manual_offline")
         socket?.disconnect()
         socket?.removeAllHandlers()
         socket = nil
@@ -155,6 +157,9 @@ final class SocketService {
         markObservedUsersOffline()
         privateCallPhaseWorkItem?.cancel()
         privateCallPhaseWorkItem = nil
+        autoRematchWorkItem?.cancel()
+        autoRematchWorkItem = nil
+        isAwaitingSearchStart = false
         unlockFindPartnerEmit(reason: "disconnect")
     }
 
@@ -172,8 +177,8 @@ final class SocketService {
         guard let socket else { return }
         print("Socket Status: \(socket.status)")
 
-        guard !isFindPartnerLocked else {
-            print("⏳ find_partner locked. Ignoring duplicate emit.")
+        guard !isFindPartnerLocked, !isAwaitingSearchStart, !(isSearching && activePartnerId == nil) else {
+            print("⏳ find_partner ignored because matchmaking is already pending/searching.")
             return
         }
 
@@ -183,7 +188,8 @@ final class SocketService {
             return
         }
 
-        lockFindPartnerEmit(for: 2.0)
+        lockFindPartnerEmit(for: 8.0)
+        isAwaitingSearchStart = true
 
         let currentGender: String? = payload.myGender
         let preferredGender: String? = payload.searchGender
@@ -197,7 +203,9 @@ final class SocketService {
 
         print("DEBUG: find_partner emitted with gender: \(preferredGender ?? "all")")
         print("📤 Emitting find_partner payload: \(emitPayload)")
-        socket.emit("find_partner", emitPayload)
+        socket.emitWithAck("find_partner", emitPayload).timingOut(after: 5) { [weak self] data in
+            self?.handleFindPartnerAck(data)
+        }
         isSearching = true
         activePartnerId = nil
         activeMatch = nil
@@ -226,6 +234,7 @@ final class SocketService {
         socket?.emit("stop_search")
         #endif
         isSearching = false
+        isAwaitingSearchStart = false
         outgoingPrivateCallTargetId = nil
         outgoingPrivateCallPhase = nil
         privateCallPhaseWorkItem?.cancel()
@@ -241,7 +250,8 @@ final class SocketService {
         activePartnerId = nil
         activeMatch = nil
         partner = nil
-        isSearching = true
+        isSearching = false
+        isAwaitingSearchStart = false
 
         updateSearchCriteria(
             myGender: myGender,
@@ -263,7 +273,8 @@ final class SocketService {
         isPartnerTyping = false
         partnerName = nil
         partnerAvatarURL = nil
-        isSearching = true
+        isSearching = false
+        isAwaitingSearchStart = false
 
         updateSearchCriteria(
             myGender: myGender,
@@ -418,16 +429,10 @@ final class SocketService {
     func requestPrivateCall(targetUserId: String) {
         #if canImport(SocketIO)
         guard !targetUserId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        guard let myId = appUserStore.currentUser?.id, !myId.isEmpty else {
-            print("DEBUG: private_call_request aborted because caller dbUserId is missing.")
-            return
-        }
         let payload: [String: Any] = [
-            "targetUserId": targetUserId,
-            "callerId": myId
+            "targetUserId": targetUserId
         ]
         print("DEBUG: Calling target with DB ID: \(targetUserId)")
-        print("DEBUG: Sending private_call_request - Caller: \(myId), Target: \(targetUserId)")
         print("Socket: Emitting private_call_request for \(targetUserId)")
         print("📞 Emitting private_call_request: \(payload)")
         outgoingPrivateCallTargetId = targetUserId
@@ -462,10 +467,7 @@ final class SocketService {
             return
         }
 
-        var payload: [String: Any] = ["targetId": trimmedTargetId]
-        if let callerId = appUserStore.currentUser?.id, !callerId.isEmpty {
-            payload["callerId"] = callerId
-        }
+        let payload: [String: Any] = ["targetId": trimmedTargetId]
         print("DEBUG: ATTEMPTING EMIT cancel_private_call to \(trimmedTargetId)")
         print("DEBUG: Sending cancel for \(trimmedTargetId)")
         print("📴 Emitting cancel_private_call: \(payload)")
@@ -646,6 +648,7 @@ final class SocketService {
     }
 
     private func lockFindPartnerEmit(for duration: TimeInterval) {
+        print("🔒 find_partner lock acquired (\(duration)s)")
         isFindPartnerLocked = true
         findPartnerUnlockWorkItem?.cancel()
 
@@ -663,6 +666,115 @@ final class SocketService {
             print("🔓 find_partner lock released (\(reason))")
         }
         isFindPartnerLocked = false
+    }
+
+    private func handleFindPartnerAck(_ data: [Any]) {
+        DispatchQueue.main.async {
+            print("DEBUG: find_partner callback payload: \(data)")
+            self.autoRematchWorkItem?.cancel()
+            self.autoRematchWorkItem = nil
+
+            guard let payload = self.extractAckDictionary(from: data) else {
+                self.isAwaitingSearchStart = false
+                self.unlockFindPartnerEmit(reason: "find_partner_ack_timeout_or_invalid")
+                return
+            }
+
+            let isOK = (payload["ok"] as? Bool) ?? false
+            let status = (payload["status"] as? String)?.lowercased()
+            let message = (payload["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let code = (payload["code"] as? String)?.uppercased()
+
+            self.isAwaitingSearchStart = false
+            self.unlockFindPartnerEmit(reason: "find_partner_ack")
+
+            guard isOK else {
+                self.isSearching = false
+                self.handleFindPartnerFailure(code: code, message: message)
+                return
+            }
+
+            switch status {
+            case "searching":
+                self.isSearching = true
+                print("DEBUG: find_partner ack confirmed queued searching state.")
+            case "matched":
+                self.isSearching = false
+                print("DEBUG: find_partner ack reported immediate match. Waiting for partner_found.")
+            default:
+                print("DEBUG: find_partner ack returned unknown success status: \(status ?? "nil")")
+            }
+        }
+    }
+
+    private func extractAckDictionary(from data: [Any]) -> [String: Any]? {
+        if let dictionary = data.first as? [String: Any] {
+            return dictionary
+        }
+
+        if let first = data.first as? String,
+           first.lowercased().contains("no ack") {
+            return nil
+        }
+
+        return nil
+    }
+
+    private func handleFindPartnerFailure(code: String?, message: String?) {
+        let resolvedMessage = message ?? "Eslesme baslatilamadi."
+        print("DEBUG: find_partner failed with code=\(code ?? "nil"), message=\(resolvedMessage)")
+
+        switch code {
+        case "INSUFFICIENT_GEMS":
+            storePresentationMessage = resolvedMessage
+            storePresentationRequestID = UUID()
+        case "AUTH_REQUIRED":
+            appUserStore.handleUnauthorized()
+        default:
+            appState.showTimedToast(resolvedMessage)
+        }
+    }
+
+    private func cleanupCurrentPeer(reason: String) {
+        print("🧹 Cleaning up current peer. reason=\(reason)")
+        webRTCManager.endSession()
+        activePartnerId = nil
+        activeMatch = nil
+        partner = nil
+        messages.removeAll()
+        isPartnerTyping = false
+        partnerName = nil
+        partnerAvatarURL = nil
+        outgoingPrivateCallTargetId = nil
+        outgoingPrivateCallPhase = nil
+        incomingPrivateCall = nil
+        privateCallNotice = nil
+        privateCallPhaseWorkItem?.cancel()
+        privateCallPhaseWorkItem = nil
+    }
+
+    private func scheduleAutoRematchIfNeeded(trigger: String, delay: TimeInterval = 0.8) {
+        autoRematchWorkItem?.cancel()
+        guard currentSearchPayload != nil else { return }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard self.activePartnerId == nil else { return }
+            guard self.isAwaitingSearchStart else {
+                print("DEBUG: Auto rematch skipped after \(trigger) because search state is already confirmed.")
+                return
+            }
+            guard !self.isFindPartnerLocked else {
+                print("DEBUG: Auto rematch skipped after \(trigger) because find_partner is still locked.")
+                return
+            }
+
+            print("📤 Emitting auto find_partner after \(trigger)")
+            self.findPartner()
+        }
+
+        autoRematchWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
     private func applyGemBalanceUpdateOnce(_ gems: Int, source: String) {
@@ -690,11 +802,6 @@ final class SocketService {
         socket.on(clientEvent: .connect) { _, _ in
             print("✅ Socket connected. status=\(socket.status)")
             self.myStatus = .online
-            if let dbUserId = self.appUserStore.currentUser?.id, !dbUserId.isEmpty {
-                let payload: [String: Any] = ["dbUserId": dbUserId]
-                print("DEBUG: Emitting register_user with dbUserId: \(dbUserId)")
-                socket.emit("register_user", payload)
-            }
             if !self.observedStatusUserIds.isEmpty {
                 self.requestUserStatus(for: Array(self.observedStatusUserIds))
             }
@@ -708,14 +815,22 @@ final class SocketService {
 
         socket.on(clientEvent: .error) { data, _ in
             print("🛑 Socket error event: \(data)")
+            self.handleSocketAuthenticationFailureIfNeeded(from: data)
         }
 
         socket.on("error") { data, _ in
             print("🚨 Server Error: \(data)")
+            self.handleSocketAuthenticationFailureIfNeeded(from: data)
         }
 
         socket.on("connection_refused") { data, _ in
             print("🚫 Connection Refused: \(data)")
+            self.handleSocketAuthenticationFailureIfNeeded(from: data)
+        }
+
+        socket.on("connect_error") { data, _ in
+            print("🚫 Connect Error: \(data)")
+            self.handleSocketAuthenticationFailureIfNeeded(from: data)
         }
 
         socket.on("partner_online") { data, _ in
@@ -742,8 +857,29 @@ final class SocketService {
             self?.applyUserStatusChange(from: data)
         }
 
+        socket.on("search_started") { [weak self] data, _ in
+            guard let self else { return }
+            print("DEBUG: search_started received: \(data)")
+            DispatchQueue.main.async {
+                let payload = data.first as? [String: Any]
+                let status = (payload?["status"] as? String)?.lowercased()
+                let autoResumed = (payload?["autoResumed"] as? Bool) ?? false
+                guard status == nil || status == "searching" else { return }
+                self.autoRematchWorkItem?.cancel()
+                self.autoRematchWorkItem = nil
+                self.isAwaitingSearchStart = false
+                self.isSearching = true
+                print("DEBUG: search_started applied. autoResumed=\(autoResumed)")
+                self.unlockFindPartnerEmit(reason: autoResumed ? "search_started_auto_resumed" : "search_started")
+            }
+        }
+
         socket.on("error_message") { [weak self] data, _ in
             guard let self, let dictionary = data.first as? [String: Any] else { return }
+            print("DEBUG: error_message received: \(dictionary)")
+            self.isAwaitingSearchStart = false
+            self.isSearching = false
+            self.unlockFindPartnerEmit(reason: "error_message")
             let type = (dictionary["type"] as? String) ?? ""
             if type == "INSUFFICIENT_GEMS" {
                 let message = (dictionary["message"] as? String)
@@ -751,7 +887,8 @@ final class SocketService {
                 self.storePresentationMessage = message
                 self.storePresentationRequestID = UUID()
                 self.stopSearch()
-                self.unlockFindPartnerEmit(reason: "insufficient_gems")
+            } else if let message = dictionary["message"] as? String, !message.isEmpty {
+                self.appState.showTimedToast(message)
             }
         }
 
@@ -807,7 +944,10 @@ final class SocketService {
                 ?? payload.partnerAvatarURL
                 ?? payload.partnerProfilePic
                 ?? payload.partnerAvatar
+            self.autoRematchWorkItem?.cancel()
+            self.autoRematchWorkItem = nil
             self.isSearching = false
+            self.isAwaitingSearchStart = false
             self.unlockFindPartnerEmit(reason: "partner_found")
             self.messages.removeAll()
             self.incomingPrivateCall = nil
@@ -906,57 +1046,29 @@ final class SocketService {
             guard let self else { return }
             print("↪️ partner_left_auto_next received. Re-entering queue...")
             self.saveCurrentPartnerToRecentHistory()
-            self.webRTCManager.endSession()
-            self.activePartnerId = nil
-            self.activeMatch = nil
-            self.partner = nil
+            self.cleanupCurrentPeer(reason: "partner_left_auto_next")
+            self.isSearching = false
             self.isSearching = true
-            self.messages.removeAll()
-            self.isPartnerTyping = false
-            self.partnerName = nil
-            self.partnerAvatarURL = nil
-            self.outgoingPrivateCallTargetId = nil
-            self.outgoingPrivateCallPhase = nil
-            self.privateCallPhaseWorkItem?.cancel()
-            self.privateCallPhaseWorkItem = nil
-
-            self.unlockFindPartnerEmit(reason: "partner_left_auto_next")
-            if self.currentSearchPayload != nil {
-                self.findPartner()
-            }
+            self.isAwaitingSearchStart = true
+            self.unlockFindPartnerEmit(reason: "partner_left_auto_next_cleanup")
+            self.scheduleAutoRematchIfNeeded(trigger: "partner_left_auto_next")
         }
 
         socket.on("partner_left") { [weak self] data, _ in
             print("👋 partner_left received: \(data)")
             self?.saveCurrentPartnerToRecentHistory()
-            self?.webRTCManager.endSession()
-            self?.activePartnerId = nil
-            self?.activeMatch = nil
-            self?.messages.removeAll()
-            self?.isPartnerTyping = false
-            self?.partnerName = nil
-            self?.partnerAvatarURL = nil
-            self?.outgoingPrivateCallTargetId = nil
-            self?.outgoingPrivateCallPhase = nil
-            self?.privateCallPhaseWorkItem?.cancel()
-            self?.privateCallPhaseWorkItem = nil
+            self?.cleanupCurrentPeer(reason: "partner_left")
+            self?.isSearching = false
+            self?.isAwaitingSearchStart = false
             self?.unlockFindPartnerEmit(reason: "partner_left")
         }
 
         socket.on("end_call") { [weak self] data, _ in
             print("📴 end_call received: \(data)")
             self?.saveCurrentPartnerToRecentHistory()
-            self?.webRTCManager.endSession()
-            self?.activePartnerId = nil
-            self?.activeMatch = nil
-            self?.messages.removeAll()
-            self?.isPartnerTyping = false
-            self?.partnerName = nil
-            self?.partnerAvatarURL = nil
-            self?.outgoingPrivateCallTargetId = nil
-            self?.outgoingPrivateCallPhase = nil
-            self?.privateCallPhaseWorkItem?.cancel()
-            self?.privateCallPhaseWorkItem = nil
+            self?.cleanupCurrentPeer(reason: "end_call")
+            self?.isSearching = false
+            self?.isAwaitingSearchStart = false
             self?.unlockFindPartnerEmit(reason: "end_call")
         }
 
@@ -1197,6 +1309,33 @@ final class SocketService {
         return renderer.image { context in
             UIColor.black.setFill()
             context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        }
+    }
+
+    private func handleSocketAuthenticationFailureIfNeeded(from data: [Any]) {
+        let message = data.compactMap { item -> String? in
+            if let text = item as? String {
+                return text
+            }
+            if let dictionary = item as? [String: Any] {
+                return (dictionary["message"] as? String) ?? (dictionary["error"] as? String)
+            }
+            return nil
+        }
+        .joined(separator: " ")
+        .lowercased()
+
+        guard message.contains("unauthorized")
+            || message.contains("auth")
+            || message.contains("jwt")
+            || message.contains("token")
+        else {
+            return
+        }
+
+        DispatchQueue.main.async {
+            self.myStatus = .offline
+            self.appUserStore.handleUnauthorized()
         }
     }
 }

@@ -3,6 +3,11 @@ import SwiftUI
 import UIKit
 import Combine
 
+struct AuthSession {
+    let user: User
+    let accessToken: String
+}
+
 struct User: Codable, Identifiable {
     var id: String
     var googleId: String?
@@ -22,6 +27,7 @@ struct User: Codable, Identifiable {
     var trustScore: Int
     var isRegistered: Bool
     var gems: Int
+    var birthDate: String?
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -43,6 +49,7 @@ struct User: Codable, Identifiable {
         case trustScore
         case isRegistered
         case gems
+        case birthDate
         case balance
         case tickets
     }

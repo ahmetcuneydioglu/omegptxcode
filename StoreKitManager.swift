@@ -25,6 +25,7 @@ struct StoreKitPurchaseResult {
     let productId: String
     let transactionId: UInt64
     let transaction: Transaction
+    let receiptData: String
 }
 
 actor StoreKitManager {
@@ -77,7 +78,8 @@ actor StoreKitManager {
             return StoreKitPurchaseResult(
                 productId: transaction.productID,
                 transactionId: transaction.id,
-                transaction: transaction
+                transaction: transaction,
+                receiptData: Self.loadReceiptData() ?? String(transaction.id)
             )
         case .userCancelled:
             throw StoreKitManagerError.userCancelled
@@ -115,5 +117,14 @@ actor StoreKitManager {
         case .unverified:
             throw StoreKitManagerError.missingTransactionVerification
         }
+    }
+
+    private static func loadReceiptData() -> String? {
+        guard let receiptURL = Bundle.main.appStoreReceiptURL,
+              let data = try? Data(contentsOf: receiptURL),
+              !data.isEmpty else {
+            return nil
+        }
+        return data.base64EncodedString()
     }
 }
