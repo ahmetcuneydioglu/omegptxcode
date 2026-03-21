@@ -28,6 +28,12 @@ struct User: Codable, Identifiable {
     var isRegistered: Bool
     var gems: Int
     var birthDate: String?
+    var work: String?
+    var education: String?
+    var location: String?
+    var hometown: String?
+    var height: Int?
+    var exercise: String?
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -50,6 +56,12 @@ struct User: Codable, Identifiable {
         case isRegistered
         case gems
         case birthDate
+        case work
+        case education
+        case location
+        case hometown
+        case height
+        case exercise
         case balance
         case tickets
     }
@@ -74,6 +86,13 @@ struct User: Codable, Identifiable {
         self.likes = try container.decodeIfPresent(Int.self, forKey: .likes) ?? 0
         self.trustScore = try container.decodeIfPresent(Int.self, forKey: .trustScore) ?? 100
         self.isRegistered = try container.decodeIfPresent(Bool.self, forKey: .isRegistered) ?? false
+        self.birthDate = try container.decodeIfPresent(String.self, forKey: .birthDate)
+        self.work = try container.decodeIfPresent(String.self, forKey: .work)
+        self.education = try container.decodeIfPresent(String.self, forKey: .education)
+        self.location = try container.decodeIfPresent(String.self, forKey: .location)
+        self.hometown = try container.decodeIfPresent(String.self, forKey: .hometown)
+        self.height = try container.decodeIfPresent(Int.self, forKey: .height)
+        self.exercise = try container.decodeIfPresent(String.self, forKey: .exercise)
         let gemsValue = try container.decodeIfPresent(Int.self, forKey: .gems)
         let balanceValue = try container.decodeIfPresent(Int.self, forKey: .balance)
         let ticketsValue = try container.decodeIfPresent(Int.self, forKey: .tickets)
@@ -100,6 +119,13 @@ struct User: Codable, Identifiable {
         try container.encode(trustScore, forKey: .trustScore)
         try container.encode(isRegistered, forKey: .isRegistered)
         try container.encode(gems, forKey: .gems)
+        try container.encodeIfPresent(birthDate, forKey: .birthDate)
+        try container.encodeIfPresent(work, forKey: .work)
+        try container.encodeIfPresent(education, forKey: .education)
+        try container.encodeIfPresent(location, forKey: .location)
+        try container.encodeIfPresent(hometown, forKey: .hometown)
+        try container.encodeIfPresent(height, forKey: .height)
+        try container.encodeIfPresent(exercise, forKey: .exercise)
     }
 }
 

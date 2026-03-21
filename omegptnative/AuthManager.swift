@@ -166,7 +166,13 @@ final class AuthManager {
         interests: [String]? = nil,
         photos: [String]? = nil,
         gender: String? = nil,
-        birthDate: String? = nil
+        birthDate: String? = nil,
+        work: String? = nil,
+        education: String? = nil,
+        location: String? = nil,
+        hometown: String? = nil,
+        height: Int? = nil,
+        exercise: String? = nil
     ) async -> Bool {
         guard currentUser != nil else { return false }
         var payload: [String: Any] = [:]
@@ -178,6 +184,12 @@ final class AuthManager {
         if let photos { payload["photos"] = photos }
         if let gender { payload["gender"] = gender }
         if let birthDate { payload["birthDate"] = birthDate }
+        if let work { payload["work"] = work }
+        if let education { payload["education"] = education }
+        if let location { payload["location"] = location }
+        if let hometown { payload["hometown"] = hometown }
+        if let height { payload["height"] = height }
+        if let exercise { payload["exercise"] = exercise }
 
         do {
             _ = try await networkManager.postJSON(

@@ -8,12 +8,24 @@ private let pageBg = Color(.systemGroupedBackground)
 struct EditProfileView: View {
     var appUserStore: AppUserStore
     @Environment(\.dismiss) private var dismiss
+    private static let birthDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd.MM.yyyy"
+        return formatter
+    }()
 
     @State private var draftName: String = ""
     @State private var draftEmail: String = ""
     @State private var draftBio: String = ""
-    @State private var draftGender: String = "Erkek"
+    @State private var draftGender: String = ""
     @State private var draftBirthDate: Date = Calendar.current.date(byAdding: .year, value: -20, to: .now) ?? .now
+    @State private var hasBirthDateValue = false
+    @State private var draftWork: String = ""
+    @State private var draftEducation: String = ""
+    @State private var draftLocation: String = ""
+    @State private var draftHometown: String = ""
+    @State private var draftHeight: Int?
+    @State private var draftExercise: String = ""
     @State private var draftInterests: [String] = []
 
     @State private var avatarPickerItem: PhotosPickerItem? = nil
@@ -23,12 +35,16 @@ struct EditProfileView: View {
     @State private var extraPhotoImages: [UIImage?] = Array(repeating: nil, count: 3)
 
     @State private var showInterestPicker = false
-    @State private var showGenderPicker = false
-    @State private var showDatePicker = false
     @State private var isSaving = false
     @State private var interestDraftBeforePicker: [String] = []
 
     private let genders = ["Erkek", "Kadın", "Belirtmek istemiyorum"]
+    private let exerciseOptions = [
+        "Aktif",
+        "Bazen",
+        "Neredeyse hic",
+        "Her gun"
+    ]
     private let maxAdditionalPhotos = 3
     private let maxEncodedImageLength = 1_900_000
     private var completionPercent: Int {
@@ -83,12 +99,6 @@ struct EditProfileView: View {
                 }
                 .presentationBackground(.clear)
             }
-            .confirmationDialog("Cinsiyet Seçin", isPresented: $showGenderPicker, titleVisibility: .visible) {
-                ForEach(genders, id: \.self) { g in
-                    Button(g) { draftGender = g }
-                }
-            }
-            .sheet(isPresented: $showDatePicker) { datePicker }
         }
         .colorScheme(.light)
         .onAppear { syncFromStore() }
@@ -422,138 +432,166 @@ struct EditProfileView: View {
     // MARK: - General Section
 
     private var generalSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: "person.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color(.secondaryLabel))
-                Text("Genel")
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color(.label))
-            }
-
-            VStack(spacing: 0) {
-                inputRow(icon: "person", placeholder: "Adınızı girin", value: $draftName)
-                Divider().padding(.leading, 50)
-                inputRow(icon: "envelope", placeholder: "Gerçek e-posta adresinizi girin", value: Binding(
-                    get: { draftEmail },
-                    set: { draftEmail = $0 }
-                ), keyboardType: .emailAddress, isEditable: false)
-                Divider().padding(.leading, 50)
-                dropdownRow(
-                    icon: "person.2",
-                    title: "Cinsiyet",
-                    value: draftGender
-                ) { showGenderPicker = true }
-                Divider().padding(.leading, 50)
-                dropdownRow(
-                    icon: "calendar",
-                    title: "Yaş",
-                    value: birthDateDisplay
-                ) { showDatePicker = true }
-            }
-            .background(cardBg, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
-        }
-    }
-
-    private func inputRow(
-        icon: String,
-        placeholder: String,
-        value: Binding<String>,
-        keyboardType: UIKeyboardType = .default,
-        isEditable: Bool = true
-    ) -> some View {
-        HStack(spacing: 14) {
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(Color(.secondaryLabel))
-                .frame(width: 22)
-            TextField(placeholder, text: value)
-                .font(.system(size: 15, weight: .regular, design: .rounded))
-                .foregroundStyle(isEditable ? Color(.label) : Color(.secondaryLabel))
-                .keyboardType(keyboardType)
-                .autocorrectionDisabled()
-                .disabled(!isEditable)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 16)
-    }
-
-    private func dropdownRow(
-        icon: String,
-        title: String,
-        value: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 14) {
-                Image(systemName: icon)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(Color(.secondaryLabel))
-                    .frame(width: 22)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                        .foregroundStyle(Color(.secondaryLabel))
-                    Text(value)
-                        .font(.system(size: 15, weight: .regular, design: .rounded))
-                        .foregroundStyle(Color(.label))
+        VStack(alignment: .leading, spacing: 26) {
+            aboutSectionBlock(
+                title: "About you",
+                subtitle: "Temel profil bilgilerini daha net hale getirin."
+            ) {
+                NavigationLink {
+                    EditProfileTextDetailView(
+                        title: "Name",
+                        placeholder: "Adınızı girin",
+                        initialValue: draftName,
+                        buttonTitle: "Uygula"
+                    ) { value in
+                        await saveProfileTextField(value, currentValue: draftName) { updated in
+                            await appUserStore.updateProfile(name: updated)
+                        }
+                    }
+                } label: {
+                    aboutRow(icon: "person.fill", title: "Name", value: displayOrAdd(draftName))
                 }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(.tertiaryLabel))
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
 
-    // MARK: - Date Picker Sheet
+                Divider().padding(.leading, 52)
 
-    private var datePicker: some View {
-        VStack(spacing: 24) {
-            Capsule()
-                .fill(Color(.quaternaryLabel))
-                .frame(width: 42, height: 5)
-                .padding(.top, 8)
-            Text("Doğum Tarihi")
-                .font(.system(size: 22, weight: .bold, design: .rounded))
-            DatePicker(
-                "",
-                selection: $draftBirthDate,
-                in: ...Calendar.current.date(byAdding: .year, value: -13, to: .now)!,
-                displayedComponents: .date
-            )
-            .datePickerStyle(.wheel)
-            .labelsHidden()
-            Button {
-                showDatePicker = false
-            } label: {
-                Text("Tamam")
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(accentRed, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                aboutStaticRow(icon: "envelope.fill", title: "Email", value: draftEmail.isEmpty ? "Linked account" : draftEmail)
+
+                Divider().padding(.leading, 52)
+
+                NavigationLink {
+                    EditProfileOptionDetailView(
+                        title: "Gender",
+                        options: genders,
+                        selectedValue: draftGender,
+                        buttonTitle: "Seç"
+                    ) { value in
+                        await saveProfileChoiceField(value, currentValue: draftGender) { updated in
+                            await appUserStore.updateProfile(gender: updated)
+                        }
+                    }
+                } label: {
+                    aboutRow(icon: "figure.stand", title: "Gender", value: displayOrAdd(draftGender))
+                }
+
+                Divider().padding(.leading, 52)
+
+                NavigationLink {
+                    EditProfileDateDetailView(
+                        title: "Birth date",
+                        initialDate: draftBirthDate,
+                        minimumAge: 13
+                    ) { value in
+                        await saveBirthDate(value)
+                    }
+                } label: {
+                    aboutRow(icon: "calendar", title: "Age", value: ageDisplay)
+                }
+
+                Divider().padding(.leading, 52)
+
+                NavigationLink {
+                    EditProfileTextDetailView(
+                        title: "Work",
+                        placeholder: "Nerede calisiyorsun?",
+                        initialValue: draftWork,
+                        buttonTitle: "Uygula"
+                    ) { value in
+                        await saveProfileTextField(value, currentValue: draftWork) { updated in
+                            await appUserStore.updateProfile(work: updated)
+                        }
+                    }
+                } label: {
+                    aboutRow(icon: "briefcase", title: "Work", value: displayOrAdd(draftWork))
+                }
+
+                Divider().padding(.leading, 52)
+
+                NavigationLink {
+                    EditProfileTextDetailView(
+                        title: "Education",
+                        placeholder: "Okul veya bolum",
+                        initialValue: draftEducation,
+                        buttonTitle: "Uygula"
+                    ) { value in
+                        await saveProfileTextField(value, currentValue: draftEducation) { updated in
+                            await appUserStore.updateProfile(education: updated)
+                        }
+                    }
+                } label: {
+                    aboutRow(icon: "graduationcap", title: "Education", value: displayOrAdd(draftEducation))
+                }
+
+                Divider().padding(.leading, 52)
+
+                NavigationLink {
+                    EditProfileTextDetailView(
+                        title: "Location",
+                        placeholder: "Konumunuzu girin",
+                        initialValue: draftLocation,
+                        buttonTitle: "Uygula"
+                    ) { value in
+                        await saveProfileTextField(value, currentValue: draftLocation) { updated in
+                            await appUserStore.updateProfile(location: updated)
+                        }
+                    }
+                } label: {
+                    aboutRow(icon: "mappin.and.ellipse", title: "Location", value: displayOrAdd(draftLocation))
+                }
+
+                Divider().padding(.leading, 52)
+
+                NavigationLink {
+                    EditProfileTextDetailView(
+                        title: "Hometown",
+                        placeholder: "Memleketinizi girin",
+                        initialValue: draftHometown,
+                        buttonTitle: "Uygula"
+                    ) { value in
+                        await saveProfileTextField(value, currentValue: draftHometown) { updated in
+                            await appUserStore.updateProfile(hometown: updated)
+                        }
+                    }
+                } label: {
+                    aboutRow(icon: "house", title: "Hometown", value: displayOrAdd(draftHometown))
+                }
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 20)
-            .padding(.bottom, 24)
+
+            aboutSectionBlock(
+                title: "More about you",
+                subtitle: "Insanlarin en cok merak ettigi bilgileri ekleyin."
+            ) {
+                NavigationLink {
+                    EditProfileHeightDetailView(initialHeight: draftHeight) { value in
+                        await saveHeight(value)
+                    }
+                } label: {
+                    aboutRow(icon: "ruler", title: "Height", value: heightDisplay)
+                }
+
+                Divider().padding(.leading, 52)
+
+                NavigationLink {
+                    EditProfileOptionDetailView(
+                        title: "Exercise",
+                        options: exerciseOptions,
+                        selectedValue: draftExercise,
+                        buttonTitle: "Seç"
+                    ) { value in
+                        await saveProfileChoiceField(value, currentValue: draftExercise) { updated in
+                            await appUserStore.updateProfile(exercise: updated)
+                        }
+                    }
+                } label: {
+                    aboutRow(icon: "dumbbell", title: "Exercise", value: displayOrAdd(draftExercise))
+                }
+            }
         }
-        .presentationDetents([.height(400)])
-        .presentationDragIndicator(.hidden)
     }
 
     // MARK: - Helpers
 
     private var birthDateDisplay: String {
-        let f = DateFormatter()
-        f.dateFormat = "dd.MM.yyyy"
-        return f.string(from: draftBirthDate)
+        Self.birthDateFormatter.string(from: draftBirthDate)
     }
 
     private func sectionHeader(_ title: String, badge: String) -> some View {
@@ -568,12 +606,189 @@ struct EditProfileView: View {
         }
     }
 
+    private func aboutSectionBlock<Content: View>(
+        title: String,
+        subtitle: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.system(size: 17, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(.label))
+            Text(subtitle)
+                .font(.system(size: 13, weight: .regular, design: .rounded))
+                .foregroundStyle(Color(.secondaryLabel))
+
+            VStack(spacing: 0) {
+                content()
+            }
+            .background(cardBg, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(color: .black.opacity(0.05), radius: 10, x: 0, y: 3)
+        }
+    }
+
+    private func aboutRow(icon: String, title: String, value: String) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(Color(.label))
+                .frame(width: 24)
+
+            Text(title)
+                .font(.system(size: 17, weight: .regular, design: .rounded))
+                .foregroundStyle(Color(.label))
+
+            Spacer(minLength: 12)
+
+            Text(value)
+                .font(.system(size: 16, weight: .regular, design: .rounded))
+                .foregroundStyle(value == "Add" ? Color(.tertiaryLabel) : Color(.secondaryLabel))
+                .lineLimit(1)
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color(.tertiaryLabel))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 18)
+        .contentShape(Rectangle())
+    }
+
+    private func aboutStaticRow(icon: String, title: String, value: String) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(Color(.label))
+                .frame(width: 24)
+
+            Text(title)
+                .font(.system(size: 17, weight: .regular, design: .rounded))
+                .foregroundStyle(Color(.label))
+
+            Spacer(minLength: 12)
+
+            Text(value)
+                .font(.system(size: 16, weight: .regular, design: .rounded))
+                .foregroundStyle(Color(.secondaryLabel))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 18)
+    }
+
+    private func displayOrAdd(_ value: String?) -> String {
+        let trimmed = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Add" : trimmed
+    }
+
+    private var ageDisplay: String {
+        guard hasBirthDateValue else { return "Add" }
+        let years = Calendar.current.dateComponents([.year], from: draftBirthDate, to: .now).year ?? 0
+        return years > 0 ? "\(years)" : birthDateDisplay
+    }
+
+    private var heightDisplay: String {
+        guard let draftHeight else { return "Add" }
+        return "\(draftHeight) cm"
+    }
+
+    private func saveProfileTextField(
+        _ value: String,
+        currentValue: String,
+        save: @escaping (String) async -> Bool
+    ) async -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentTrimmed = currentValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            AppState.shared.showTimedToast("Bu alan bos birakilamaz.")
+            return false
+        }
+        guard trimmed != currentTrimmed else { return true }
+
+        let success = await save(trimmed)
+        if success {
+            await MainActor.run {
+                syncFromStore()
+            }
+        } else {
+            await MainActor.run {
+                syncFromStore()
+                AppState.shared.showTimedToast(appUserStore.authErrorMessage ?? "Profil guncellenemedi.")
+            }
+        }
+        return success
+    }
+
+    private func saveProfileChoiceField(
+        _ value: String,
+        currentValue: String,
+        save: @escaping (String) async -> Bool
+    ) async -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        guard trimmed != currentValue.trimmingCharacters(in: .whitespacesAndNewlines) else { return true }
+
+        let success = await save(trimmed)
+        if success {
+            await MainActor.run {
+                syncFromStore()
+            }
+        } else {
+            await MainActor.run {
+                syncFromStore()
+                AppState.shared.showTimedToast(appUserStore.authErrorMessage ?? "Profil guncellenemedi.")
+            }
+        }
+        return success
+    }
+
+    private func saveBirthDate(_ value: Date) async -> Bool {
+        let formatted = Self.birthDateFormatter.string(from: value)
+        guard formatted != birthDateDisplay else { return true }
+
+        let success = await appUserStore.updateProfile(birthDate: formatted)
+        if success {
+            await MainActor.run {
+                syncFromStore()
+            }
+        } else {
+            await MainActor.run {
+                syncFromStore()
+                AppState.shared.showTimedToast(appUserStore.authErrorMessage ?? "Dogum tarihi guncellenemedi.")
+            }
+        }
+        return success
+    }
+
+    private func saveHeight(_ value: Int) async -> Bool {
+        guard draftHeight != value else { return true }
+
+        let success = await appUserStore.updateProfile(height: value)
+        if success {
+            await MainActor.run {
+                syncFromStore()
+            }
+        } else {
+            await MainActor.run {
+                syncFromStore()
+                AppState.shared.showTimedToast(appUserStore.authErrorMessage ?? "Boy bilgisi guncellenemedi.")
+            }
+        }
+        return success
+    }
+
     private func syncFromStore() {
         guard let user = appUserStore.currentUser else { return }
         draftName = user.name
         draftEmail = user.email ?? ""
         draftBio = user.bio ?? ""
-        draftGender = user.gender ?? "Erkek"
+        draftGender = user.gender ?? ""
+        draftWork = user.work ?? ""
+        draftEducation = user.education ?? ""
+        draftLocation = user.location ?? ""
+        draftHometown = user.hometown ?? ""
+        draftHeight = user.height
+        draftExercise = user.exercise ?? ""
         draftInterests = user.interests
         if user.avatar == nil {
             localAvatar = nil
@@ -600,28 +815,34 @@ struct EditProfileView: View {
         photoPickerItems = Array(repeating: nil, count: maxAdditionalPhotos)
 
         if let bd = user.birthDate {
-            let f = DateFormatter()
-            f.dateFormat = "dd.MM.yyyy"
-            if let d = f.date(from: bd) { draftBirthDate = d }
+            hasBirthDateValue = true
+            if let d = Self.birthDateFormatter.date(from: bd) { draftBirthDate = d }
         } else if let age = user.age, age > 0 {
+            hasBirthDateValue = true
             draftBirthDate = Calendar.current.date(byAdding: .year, value: -age, to: .now) ?? draftBirthDate
+        } else {
+            hasBirthDateValue = false
         }
     }
 
     private func saveAll() async {
+        let currentBio = (appUserStore.currentUser?.bio ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedBio = draftBio.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedBio != currentBio else { return }
+
         isSaving = true
         defer { isSaving = false }
-        let dateStr = birthDateDisplay
-        let success = await appUserStore.updateProfile(
-            name: draftName.isEmpty ? nil : draftName,
-            bio: draftBio.isEmpty ? nil : draftBio,
-            interests: draftInterests,
-            gender: draftGender,
-            birthDate: dateStr
-        )
-        if !success {
-            syncFromStore()
-            AppState.shared.showTimedToast(appUserStore.authErrorMessage ?? "Profil guncellenemedi.")
+
+        let success = await appUserStore.updateProfile(bio: trimmedBio)
+        if success {
+            await MainActor.run {
+                syncFromStore()
+            }
+        } else {
+            await MainActor.run {
+                syncFromStore()
+                AppState.shared.showTimedToast(appUserStore.authErrorMessage ?? "Profil guncellenemedi.")
+            }
         }
     }
 
@@ -787,6 +1008,312 @@ struct EditProfileView: View {
         return renderer.image { _ in
             image.draw(in: CGRect(origin: .zero, size: newSize))
         }
+    }
+}
+
+private struct EditProfileTextDetailView: View {
+    let title: String
+    let placeholder: String
+    let initialValue: String
+    let buttonTitle: String
+    let onSave: (String) async -> Bool
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var text: String
+    @State private var isSaving = false
+
+    init(
+        title: String,
+        placeholder: String,
+        initialValue: String,
+        buttonTitle: String,
+        onSave: @escaping (String) async -> Bool
+    ) {
+        self.title = title
+        self.placeholder = placeholder
+        self.initialValue = initialValue
+        self.buttonTitle = buttonTitle
+        self.onSave = onSave
+        _text = State(initialValue: initialValue)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text(title)
+                .font(.system(size: 30, weight: .black, design: .rounded))
+                .foregroundStyle(Color(.label))
+
+            Text("Profilinde gorunecek bilgiyi duzenle.")
+                .font(.system(size: 14, weight: .regular, design: .rounded))
+                .foregroundStyle(Color(.secondaryLabel))
+
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(cardBg)
+                    .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
+
+                TextEditor(text: $text)
+                    .scrollContentBackground(.hidden)
+                    .font(.system(size: 17, weight: .regular, design: .rounded))
+                    .foregroundStyle(Color(.label))
+                    .frame(minHeight: 160)
+                    .padding(12)
+
+                if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(placeholder)
+                        .font(.system(size: 16, weight: .regular, design: .rounded))
+                        .foregroundStyle(Color(.tertiaryLabel))
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 20)
+                        .allowsHitTesting(false)
+                }
+            }
+            .frame(minHeight: 160)
+
+            Button {
+                Task {
+                    isSaving = true
+                    let success = await onSave(text)
+                    isSaving = false
+                    if success {
+                        dismiss()
+                    }
+                }
+            } label: {
+                Text(isSaving ? "Kaydediliyor..." : buttonTitle)
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(accentRed, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(isSaving)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 24)
+        .background(pageBg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct EditProfileOptionDetailView: View {
+    let title: String
+    let options: [String]
+    let selectedValue: String
+    let buttonTitle: String
+    let onSave: (String) async -> Bool
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var selection: String
+    @State private var isSaving = false
+
+    init(
+        title: String,
+        options: [String],
+        selectedValue: String,
+        buttonTitle: String,
+        onSave: @escaping (String) async -> Bool
+    ) {
+        self.title = title
+        self.options = options
+        self.selectedValue = selectedValue
+        self.buttonTitle = buttonTitle
+        self.onSave = onSave
+        _selection = State(initialValue: selectedValue.isEmpty ? (options.first ?? "") : selectedValue)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text(title)
+                .font(.system(size: 30, weight: .black, design: .rounded))
+                .foregroundStyle(Color(.label))
+
+            VStack(spacing: 0) {
+                ForEach(options, id: \.self) { option in
+                    Button {
+                        selection = option
+                    } label: {
+                        HStack {
+                            Text(option)
+                                .font(.system(size: 17, weight: .medium, design: .rounded))
+                                .foregroundStyle(Color(.label))
+                            Spacer()
+                            if selection == option {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 20, weight: .semibold))
+                                    .foregroundStyle(accentRed)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 18)
+                    }
+                    .buttonStyle(.plain)
+
+                    if option != options.last {
+                        Divider().padding(.leading, 16)
+                    }
+                }
+            }
+            .background(cardBg, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
+
+            Button {
+                Task {
+                    isSaving = true
+                    let success = await onSave(selection)
+                    isSaving = false
+                    if success {
+                        dismiss()
+                    }
+                }
+            } label: {
+                Text(isSaving ? "Kaydediliyor..." : buttonTitle)
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(accentRed, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(isSaving)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 24)
+        .background(pageBg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct EditProfileHeightDetailView: View {
+    let initialHeight: Int?
+    let onSave: (Int) async -> Bool
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedHeight: Int
+    @State private var isSaving = false
+
+    init(initialHeight: Int?, onSave: @escaping (Int) async -> Bool) {
+        self.initialHeight = initialHeight
+        self.onSave = onSave
+        _selectedHeight = State(initialValue: initialHeight ?? 170)
+    }
+
+    var body: some View {
+        VStack(spacing: 22) {
+            Text("Height")
+                .font(.system(size: 30, weight: .black, design: .rounded))
+                .foregroundStyle(Color(.label))
+
+            Text("\(selectedHeight) cm")
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .foregroundStyle(accentRed)
+
+            Picker("Height", selection: $selectedHeight) {
+                ForEach(120...220, id: \.self) { height in
+                    Text("\(height) cm").tag(height)
+                }
+            }
+            .pickerStyle(.wheel)
+            .frame(maxWidth: .infinity)
+
+            Button {
+                Task {
+                    isSaving = true
+                    let success = await onSave(selectedHeight)
+                    isSaving = false
+                    if success {
+                        dismiss()
+                    }
+                }
+            } label: {
+                Text(isSaving ? "Kaydediliyor..." : "Uygula")
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(accentRed, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(isSaving)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 24)
+        .background(pageBg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct EditProfileDateDetailView: View {
+    let title: String
+    let initialDate: Date
+    let minimumAge: Int
+    let onSave: (Date) async -> Bool
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedDate: Date
+    @State private var isSaving = false
+
+    init(
+        title: String,
+        initialDate: Date,
+        minimumAge: Int,
+        onSave: @escaping (Date) async -> Bool
+    ) {
+        self.title = title
+        self.initialDate = initialDate
+        self.minimumAge = minimumAge
+        self.onSave = onSave
+        _selectedDate = State(initialValue: initialDate)
+    }
+
+    var body: some View {
+        VStack(spacing: 22) {
+            Text(title)
+                .font(.system(size: 30, weight: .black, design: .rounded))
+                .foregroundStyle(Color(.label))
+
+            DatePicker(
+                "",
+                selection: $selectedDate,
+                in: ...Calendar.current.date(byAdding: .year, value: -minimumAge, to: .now)!,
+                displayedComponents: .date
+            )
+            .datePickerStyle(.wheel)
+            .labelsHidden()
+
+            Button {
+                Task {
+                    isSaving = true
+                    let success = await onSave(selectedDate)
+                    isSaving = false
+                    if success {
+                        dismiss()
+                    }
+                }
+            } label: {
+                Text(isSaving ? "Kaydediliyor..." : "Uygula")
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(accentRed, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(isSaving)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 24)
+        .background(pageBg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

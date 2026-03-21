@@ -13,6 +13,12 @@ const updateProfileSchema = z.object({
   photos: z.array(z.string().trim().min(1).max(2_000_000)).max(3).optional(),
   gender: z.string().trim().max(50).optional(),
   birthDate: z.string().trim().max(20).optional(),
+  work: z.string().trim().max(80).optional(),
+  education: z.string().trim().max(120).optional(),
+  location: z.string().trim().max(80).optional(),
+  hometown: z.string().trim().max(80).optional(),
+  height: z.number().int().min(80).max(260).optional(),
+  exercise: z.string().trim().max(40).optional(),
   avatarBase64: z.string().max(2_000_000).optional(),
   avatarRemoved: z.boolean().optional(),
 });

@@ -1490,6 +1490,24 @@ app.post('/api/users/update-profile', requireAuth, userActionRateLimit, async (r
     if (typeof parsed.birthDate === 'string' && parsed.birthDate.trim()) {
       updateData.birthDate = parsed.birthDate.trim();
     }
+    if (typeof parsed.work === 'string' && parsed.work.trim()) {
+      updateData.work = parsed.work.trim();
+    }
+    if (typeof parsed.education === 'string' && parsed.education.trim()) {
+      updateData.education = parsed.education.trim();
+    }
+    if (typeof parsed.location === 'string' && parsed.location.trim()) {
+      updateData.location = parsed.location.trim();
+    }
+    if (typeof parsed.hometown === 'string' && parsed.hometown.trim()) {
+      updateData.hometown = parsed.hometown.trim();
+    }
+    if (Number.isInteger(parsed.height)) {
+      updateData.height = parsed.height;
+    }
+    if (typeof parsed.exercise === 'string' && parsed.exercise.trim()) {
+      updateData.exercise = parsed.exercise.trim();
+    }
 
     if (Object.keys(updateData).length === 0) {
       return res.status(400).json({ error: 'Güncellenecek alan bulunamadı' });
