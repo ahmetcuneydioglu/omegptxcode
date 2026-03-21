@@ -6,7 +6,6 @@ struct SocialDiscoveryView: View {
     var appUserStore: AppUserStore
     let onClose: () -> Void
     let onLogout: () -> Void
-    private var appState = AppState.shared
 
     @State private var isEditing = false
     @State private var showInterestPicker = false
@@ -73,19 +72,15 @@ struct SocialDiscoveryView: View {
             }
         }
         .fullScreenCover(isPresented: $showInterestPicker) {
-            InterestPickerView(selectedInterests: $selectedInterests)
-                .preferredColorScheme(.dark)
-                .onDisappear {
-                    let updatedInterests = Array(selectedInterests).sorted()
-                    Task {
-                        let success = await appUserStore.updateProfile(interests: updatedInterests)
-                        if !success {
-                            syncDraftState()
-                            appState.showTimedToast(appUserStore.authErrorMessage ?? "Ilgi alanlari kaydedilemedi.")
-                        }
-                    }
-                }
+            interestPickerSheet
         }
+    }
+
+    private var interestPickerSheet: some View {
+        InterestPickerView(selectedInterests: $selectedInterests) { updatedInterests in
+            await persistSelectedInterests(updatedInterests)
+        }
+            .preferredColorScheme(.dark)
     }
 
     private var header: some View {
@@ -576,6 +571,15 @@ struct SocialDiscoveryView: View {
     private func syncDraftState() {
         draftBio = appUserStore.currentUser?.bio ?? ""
         selectedInterests = Set(appUserStore.currentUser?.interests ?? [])
+    }
+
+    private func persistSelectedInterests(_ updatedInterests: [String]) async -> Bool {
+        let success = await appUserStore.updateProfile(interests: updatedInterests)
+        if !success {
+            syncDraftState()
+            AppState.shared.showTimedToast(appUserStore.authErrorMessage ?? "Ilgi alanlari kaydedilemedi.")
+        }
+        return success
     }
 
     private func loadSelectedPhotos(from items: [PhotosPickerItem]) async {

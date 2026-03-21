@@ -103,8 +103,12 @@ final class NetworkManager {
             request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         }
 
-        if let body {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        if let body = body {
+            guard JSONSerialization.isValidJSONObject(body) else {
+                print("⚠️ Invalid JSON body for \(method) \(path): \(body)")
+                throw NetworkError.serverError("Gecersiz istek verisi.")
+            }
+            request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
         }
 
         return request

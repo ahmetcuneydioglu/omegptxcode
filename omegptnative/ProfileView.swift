@@ -6,7 +6,6 @@ struct ProfileView: View {
     var appUserStore: AppUserStore
     let onClose: () -> Void
     let onLogout: () -> Void
-    private var appState = AppState.shared
 
     @State private var profileVM = ProfileViewModel()
     @State private var selectedTab = 0
@@ -42,48 +41,98 @@ struct ProfileView: View {
     }
 
     var body: some View {
+        profileRoot
+    }
+
+    private var profileRoot: some View {
         NavigationStack {
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 0) {
-                    headerButtons
-                    profileHero
-                    statsBar
-                        .padding(.horizontal, 20)
-                        .padding(.top, 24)
-                    tabBar
-                        .padding(.top, 28)
-                    tabContent
-                        .padding(.top, 4)
-                }
-                .padding(.bottom, 40)
-            }
-            .background(Color(red: 0.04, green: 0.04, blue: 0.10).ignoresSafeArea())
-            .toolbar(.hidden, for: .navigationBar)
+            profileScrollContent
+                .background(profileBackground)
+                .toolbar(.hidden, for: .navigationBar)
         }
         .preferredColorScheme(.dark)
         .task {
-            syncDrafts()
-            if localAvatar == nil {
-                localAvatar = appUserStore.cachedAvatarImage()
-            }
-            if localPhotos.isEmpty {
-                localPhotos = appUserStore.cachedPhotos()
-            }
-            if let uid = appUserStore.currentUser?.id {
-                await profileVM.fetchAll(userId: uid)
-            }
+            await handleInitialTask()
         }
-        .onChange(of: appUserStore.currentUser?.name) { _, _ in syncDrafts() }
-        .onChange(of: appUserStore.currentUser?.interests) { _, _ in syncDrafts() }
+        .onChange(of: appUserStore.currentUser?.name) { _, _ in
+            handleNameChange()
+        }
+        .onChange(of: appUserStore.currentUser?.interests) { _, _ in
+            handleInterestsChange()
+        }
         .onChange(of: photoPickerItems) { _, newValue in
-            Task { await loadSelectedPhotos(from: newValue) }
+            handlePhotoPickerChange(newValue)
         }
         .onChange(of: avatarPickerItem) { _, newValue in
-            Task { await loadAvatarPhoto(from: newValue) }
+            handleAvatarPickerChange(newValue)
         }
-        .sheet(isPresented: $showEditSheet) {
-            EditProfileView(appUserStore: appUserStore)
+        .sheet(isPresented: $showEditSheet, content: editProfileSheet)
+    }
+
+    private var profileScrollContent: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 0) {
+                headerButtons
+                profileHero
+                statsSectionView
+                tabBarSection
+                tabContentSection
+            }
+            .padding(.bottom, 40)
         }
+    }
+
+    private var statsSectionView: some View {
+        statsBar
+            .padding(.horizontal, 20)
+            .padding(.top, 24)
+    }
+
+    private var tabBarSection: some View {
+        tabBar
+            .padding(.top, 28)
+    }
+
+    private var tabContentSection: some View {
+        tabContent
+            .padding(.top, 4)
+    }
+
+    private var profileBackground: some View {
+        Color(red: 0.04, green: 0.04, blue: 0.10).ignoresSafeArea()
+    }
+
+    private func editProfileSheet() -> some View {
+        EditProfileView(appUserStore: appUserStore)
+    }
+
+    private func handleInitialTask() async {
+        syncDrafts()
+        if localAvatar == nil {
+            localAvatar = appUserStore.cachedAvatarImage()
+        }
+        if localPhotos.isEmpty {
+            localPhotos = appUserStore.cachedPhotos()
+        }
+        if let uid = appUserStore.currentUser?.id {
+            await profileVM.fetchAll(userId: uid)
+        }
+    }
+
+    private func handleNameChange() {
+        syncDrafts()
+    }
+
+    private func handleInterestsChange() {
+        syncDrafts()
+    }
+
+    private func handlePhotoPickerChange(_ newValue: [PhotosPickerItem]) {
+        Task { await loadSelectedPhotos(from: newValue) }
+    }
+
+    private func handleAvatarPickerChange(_ newValue: PhotosPickerItem?) {
+        Task { await loadAvatarPhoto(from: newValue) }
     }
 
     // MARK: - Header Buttons
@@ -567,18 +616,7 @@ struct ProfileView: View {
                         )
                 )
 
-                NavigationLink(destination: InterestPickerView(selectedInterests: $selectedInterests)
-                    .onDisappear {
-                        let updatedInterests = Array(selectedInterests).sorted()
-                        Task {
-                            let success = await appUserStore.updateProfile(interests: updatedInterests)
-                            if !success {
-                                syncDrafts()
-                                appState.showTimedToast(appUserStore.authErrorMessage ?? "Ilgi alanlari kaydedilemedi.")
-                            }
-                        }
-                    }
-                ) {
+                NavigationLink(destination: interestPickerDestination) {
                     ZStack {
                         Circle()
                             .fill(Color(red: 0.44, green: 0.28, blue: 1.0))
@@ -591,6 +629,12 @@ struct ProfileView: View {
                 .buttonStyle(.plain)
                 .padding(10)
             }
+        }
+    }
+
+    private var interestPickerDestination: some View {
+        InterestPickerView(selectedInterests: $selectedInterests) { updatedInterests in
+            await persistSelectedInterests(updatedInterests)
         }
     }
 
@@ -853,6 +897,15 @@ struct ProfileView: View {
         draftName = appUserStore.currentUser?.name ?? ""
         draftBio = appUserStore.currentUser?.bio ?? ""
         selectedInterests = Set(appUserStore.currentUser?.interests ?? [])
+    }
+
+    private func persistSelectedInterests(_ updatedInterests: [String]) async -> Bool {
+        let success = await appUserStore.updateProfile(interests: updatedInterests)
+        if !success {
+            syncDrafts()
+            AppState.shared.showTimedToast(appUserStore.authErrorMessage ?? "Ilgi alanlari kaydedilemedi.")
+        }
+        return success
     }
 
     private func toggleInterest(_ interest: String) {

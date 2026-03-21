@@ -106,6 +106,9 @@ struct WrapLayout: Layout {
 struct InterestPickerView: View {
     @Binding var selectedInterests: Set<String>
     @Environment(\.dismiss) private var dismiss
+    let onSave: (([String]) async -> Bool)?
+
+    @State private var isSaving = false
 
     private let maxSelection = 5
     private let screenBackgroundColor = Color(red: 0.95, green: 0.95, blue: 0.96)
@@ -114,6 +117,14 @@ struct InterestPickerView: View {
     private let chipDefaultText = Color(red: 0.23, green: 0.23, blue: 0.27)
     private let saveButtonColor = Color(red: 0.94, green: 0.19, blue: 0.33)
     private let allInterestItems = Set(interestCategories.flatMap(\.items))
+
+    init(
+        selectedInterests: Binding<Set<String>>,
+        onSave: (([String]) async -> Bool)? = nil
+    ) {
+        self._selectedInterests = selectedInterests
+        self.onSave = onSave
+    }
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -240,19 +251,31 @@ struct InterestPickerView: View {
 
     private var saveButton: some View {
         Button {
-            dismiss()
+            Task {
+                await saveSelections()
+            }
         } label: {
-            Text("Kaydet")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 18)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(saveButtonColor)
-                )
+            Group {
+                if isSaving {
+                    ProgressView()
+                        .tint(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 18)
+                } else {
+                    Text("Kaydet")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 18)
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(saveButtonColor)
+            )
         }
         .buttonStyle(.plain)
+        .disabled(isSaving)
     }
 
     private func toggleSelection(for interest: String) {
@@ -268,5 +291,22 @@ struct InterestPickerView: View {
     private func normalizeSelectedInterests() {
         let validSelections = selectedInterests.filter { allInterestItems.contains($0) }.sorted()
         selectedInterests = Set(validSelections.prefix(maxSelection))
+    }
+
+    @MainActor
+    private func saveSelections() async {
+        let updatedInterests = Array(selectedInterests).sorted()
+        guard let onSave else {
+            dismiss()
+            return
+        }
+
+        isSaving = true
+        defer { isSaving = false }
+
+        let success = await onSave(updatedInterests)
+        if success {
+            dismiss()
+        }
     }
 }

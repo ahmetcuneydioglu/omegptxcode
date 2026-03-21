@@ -46,12 +46,20 @@ final class AuthManager {
         try? data.write(to: avatarCacheURL, options: .atomic)
     }
 
+    func clearAvatarCache() {
+        try? FileManager.default.removeItem(at: avatarCacheURL)
+    }
+
     func savePhotosToCache(_ images: [UIImage]) {
         let datas = images.compactMap { $0.jpegData(compressionQuality: 0.6) }
         let b64s = datas.map { $0.base64EncodedString() }
         if let encoded = try? JSONEncoder().encode(b64s) {
             try? encoded.write(to: photosCacheURL, options: .atomic)
         }
+    }
+
+    func clearPhotosCache() {
+        try? FileManager.default.removeItem(at: photosCacheURL)
     }
 
     func cachedPhotos() -> [UIImage] {
@@ -153,6 +161,7 @@ final class AuthManager {
     func updateProfile(
         name: String? = nil,
         avatarBase64: String? = nil,
+        avatarRemoved: Bool = false,
         bio: String? = nil,
         interests: [String]? = nil,
         photos: [String]? = nil,
@@ -163,6 +172,7 @@ final class AuthManager {
         var payload: [String: Any] = [:]
         if let name { payload["name"] = name }
         if let avatarBase64 { payload["avatarBase64"] = avatarBase64 }
+        if avatarRemoved { payload["avatarRemoved"] = true }
         if let bio { payload["bio"] = bio }
         if let interests { payload["interests"] = interests }
         if let photos { payload["photos"] = photos }

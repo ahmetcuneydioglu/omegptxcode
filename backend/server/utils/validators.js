@@ -14,6 +14,7 @@ const updateProfileSchema = z.object({
   gender: z.string().trim().max(50).optional(),
   birthDate: z.string().trim().max(20).optional(),
   avatarBase64: z.string().max(2_000_000).optional(),
+  avatarRemoved: z.boolean().optional(),
 });
 
 const getUserStatusSchema = z.array(objectIdSchema).max(100);

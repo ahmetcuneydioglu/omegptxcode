@@ -1474,6 +1474,9 @@ app.post('/api/users/update-profile', requireAuth, userActionRateLimit, async (r
         ? parsed.avatarBase64
         : `data:image/jpeg;base64,${parsed.avatarBase64}`;
     }
+    if (parsed.avatarRemoved === true) {
+      updateData.avatar = null;
+    }
     if (typeof parsed.gender === 'string' && parsed.gender.trim()) {
       updateData.gender = parsed.gender.trim();
     }

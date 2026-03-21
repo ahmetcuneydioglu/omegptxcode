@@ -8,7 +8,6 @@ private let pageBg = Color(.systemGroupedBackground)
 struct EditProfileView: View {
     var appUserStore: AppUserStore
     @Environment(\.dismiss) private var dismiss
-    private var appState = AppState.shared
 
     @State private var draftName: String = ""
     @State private var draftEmail: String = ""
@@ -18,16 +17,20 @@ struct EditProfileView: View {
     @State private var draftInterests: [String] = []
 
     @State private var avatarPickerItem: PhotosPickerItem? = nil
-    @State private var photoPickerItems: [PhotosPickerItem?] = Array(repeating: nil, count: 5)
+    @State private var additionalPhotoPickerItem: PhotosPickerItem? = nil
+    @State private var photoPickerItems: [PhotosPickerItem?] = Array(repeating: nil, count: 3)
     @State private var localAvatar: UIImage? = nil
-    @State private var localPhotos: [UIImage?] = Array(repeating: nil, count: 5)
+    @State private var extraPhotoPayloads: [String?] = Array(repeating: nil, count: 3)
+    @State private var extraPhotoImages: [UIImage?] = Array(repeating: nil, count: 3)
 
     @State private var showInterestPicker = false
     @State private var showGenderPicker = false
     @State private var showDatePicker = false
     @State private var isSaving = false
+    @State private var interestDraftBeforePicker: [String] = []
 
     private let genders = ["Erkek", "Kadın", "Belirtmek istemiyorum"]
+    private let maxAdditionalPhotos = 3
 
     private var completionPercent: Int {
         var score = 0
@@ -66,11 +69,22 @@ struct EditProfileView: View {
             .onChange(of: avatarPickerItem) { _, item in
                 Task { await loadAvatar(item) }
             }
+            .onChange(of: additionalPhotoPickerItem) { _, item in
+                Task { await addPhotoToFirstEmptySlot(item) }
+            }
             .sheet(isPresented: $showInterestPicker) {
                 InterestPickerView(selectedInterests: Binding(
                     get: { Set(draftInterests) },
                     set: { draftInterests = Array($0).sorted() }
                 ))
+                .onAppear {
+                    interestDraftBeforePicker = draftInterests
+                }
+                .onDisappear {
+                    Task {
+                        await saveInterestsIfNeededAfterPicker()
+                    }
+                }
                 .presentationBackground(.clear)
             }
             .confirmationDialog("Cinsiyet Seçin", isPresented: $showGenderPicker, titleVisibility: .visible) {
@@ -83,6 +97,12 @@ struct EditProfileView: View {
         .colorScheme(.light)
         .onAppear { syncFromStore() }
         .onChange(of: appUserStore.currentUser?.interests) { _, _ in
+            syncFromStore()
+        }
+        .onChange(of: appUserStore.currentUser?.photos) { _, _ in
+            syncFromStore()
+        }
+        .onChange(of: appUserStore.currentUser?.avatar) { _, _ in
             syncFromStore()
         }
     }
@@ -169,7 +189,7 @@ struct EditProfileView: View {
             photoGrid
                 .padding(.top, 4)
 
-            PhotosPicker(selection: $avatarPickerItem, matching: .images) {
+            PhotosPicker(selection: $additionalPhotoPickerItem, matching: .images) {
                 Text("Fotoğraf yükle")
                     .font(.system(size: 16, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
@@ -186,9 +206,9 @@ struct EditProfileView: View {
         let slotW = (UIScreen.main.bounds.width - 40 - 24) / 3
         let slotH = slotW * 1.25
         return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 12) {
-            ForEach(0..<6) { i in
+            ForEach(0..<(maxAdditionalPhotos + 1), id: \.self) { i in
                 photoSlot(index: i)
-                    .frame(height: slotH)
+                    .frame(width: slotW, height: slotH)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
         }
@@ -197,19 +217,39 @@ struct EditProfileView: View {
     @ViewBuilder
     private func photoSlot(index: Int) -> some View {
         ZStack(alignment: .topTrailing) {
-            if index == 0, let avatar = localAvatar {
+            if index == 0, let avatar = resolvedAvatarImage {
                 Image(uiImage: avatar).resizable().scaledToFill()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
                     .background(Color(.systemFill))
             } else if index == 0, let url = profileAvatarURL {
                 AsyncImage(url: url) { p in
                     switch p {
-                    case .success(let img): img.resizable().scaledToFill()
+                    case .success(let img):
+                        img.resizable()
+                            .scaledToFill()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .clipped()
                     default: Color(.systemFill)
                     }
                 }
-            } else if index > 0, let img = localPhotos[index - 1] {
+            } else if index > 0, let img = resolvedExtraPhotoImage(at: index - 1) {
                 Image(uiImage: img).resizable().scaledToFill()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
                     .background(Color(.systemFill))
+            } else if index > 0, let url = resolvedExtraPhotoURL(at: index - 1) {
+                AsyncImage(url: url) { p in
+                    switch p {
+                    case .success(let img):
+                        img.resizable()
+                            .scaledToFill()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .clipped()
+                    default:
+                        Color(.systemFill)
+                    }
+                }
             } else {
                 Color(.systemFill)
                 Image(systemName: "plus")
@@ -218,34 +258,62 @@ struct EditProfileView: View {
             }
 
             if index == 0 {
-                PhotosPicker(selection: $avatarPickerItem, matching: .images) {
-                    Image(systemName: "pencil")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(6)
-                        .background(Circle().fill(Color.black.opacity(0.45)))
+                if hasAvatar {
+                    Button {
+                        Task { await removeAvatar() }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(6)
+                            .background(Circle().fill(Color.black.opacity(0.45)))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(6)
+                } else {
+                    PhotosPicker(selection: $avatarPickerItem, matching: .images) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(Color(.tertiaryLabel))
+                            .padding(6)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(6)
                 }
-                .buttonStyle(.plain)
-                .padding(6)
             } else {
                 let b = Binding<[PhotosPickerItem]>(
                     get: { photoPickerItems[index - 1].map { [$0] } ?? [] },
                     set: { photoPickerItems[index - 1] = $0.first }
                 )
-                PhotosPicker(selection: b, matching: .images) {
-                    Image(systemName: localPhotos[index - 1] != nil ? "pencil" : "plus")
+                if hasExtraPhoto(at: index - 1) {
+                    Button {
+                        Task { await removePhoto(at: index - 1) }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(6)
+                            .background(Circle().fill(Color.black.opacity(0.45)))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(6)
+                } else {
+                    PhotosPicker(selection: b, matching: .images) {
+                        Image(systemName: "plus")
                         .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(localPhotos[index - 1] != nil ? .white : Color(.tertiaryLabel))
+                        .foregroundStyle(Color(.tertiaryLabel))
                         .padding(6)
-                        .background(Circle().fill(localPhotos[index - 1] != nil ? Color.black.opacity(0.45) : Color.clear))
-                }
-                .buttonStyle(.plain)
-                .padding(6)
-                .onChange(of: photoPickerItems[index - 1]) { _, item in
-                    Task { await loadPhoto(item, index: index - 1) }
+                        .background(Circle().fill(Color.clear))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(6)
+                    .onChange(of: photoPickerItems[index - 1]) { _, item in
+                        Task { await loadPhoto(item, index: index - 1) }
+                    }
                 }
             }
         }
+        .background(cardBg)
     }
 
     // MARK: - Interests Section
@@ -507,8 +575,19 @@ struct EditProfileView: View {
         draftBio = user.bio ?? ""
         draftGender = user.gender ?? "Erkek"
         draftInterests = user.interests
-        localAvatar = appUserStore.cachedAvatarImage()
-        localPhotos = appUserStore.cachedPhotos() + Array(repeating: nil, count: max(0, 5 - appUserStore.cachedPhotos().count))
+        if user.avatar == nil {
+            localAvatar = nil
+            appUserStore.clearAvatarCache()
+        } else {
+            localAvatar = appUserStore.cachedAvatarImage()
+        }
+        let userPhotos = Array(user.photos.prefix(maxAdditionalPhotos))
+        extraPhotoPayloads = userPhotos.map(Optional.some)
+            + Array(repeating: nil, count: max(0, maxAdditionalPhotos - userPhotos.count))
+        extraPhotoImages = extraPhotoPayloads.map { payload in
+            payload.flatMap { image(from: $0) }
+        }
+        photoPickerItems = Array(repeating: nil, count: maxAdditionalPhotos)
 
         if let bd = user.birthDate {
             let f = DateFormatter()
@@ -532,7 +611,21 @@ struct EditProfileView: View {
         )
         if !success {
             syncFromStore()
-            appState.showTimedToast(appUserStore.authErrorMessage ?? "Profil guncellenemedi.")
+            AppState.shared.showTimedToast(appUserStore.authErrorMessage ?? "Profil guncellenemedi.")
+        }
+    }
+
+    private func saveInterestsIfNeededAfterPicker() async {
+        let oldValue = interestDraftBeforePicker.sorted()
+        let newValue = draftInterests.sorted()
+        guard oldValue != newValue else { return }
+
+        let success = await appUserStore.updateProfile(interests: newValue)
+        if !success {
+            await MainActor.run {
+                syncFromStore()
+                AppState.shared.showTimedToast(appUserStore.authErrorMessage ?? "Ilgi alanlari kaydedilemedi.")
+            }
         }
     }
 
@@ -550,12 +643,102 @@ struct EditProfileView: View {
         guard let item, let data = try? await item.loadTransferable(type: Data.self),
               let img = UIImage(data: data) else { return }
         let compressed = img.jpegData(compressionQuality: 0.6) ?? data
-        await MainActor.run { localPhotos[index] = UIImage(data: compressed) ?? img }
-        let all = localPhotos.compactMap { $0 }
-        appUserStore.savePhotosToCache(all)
-        let b64s = all.compactMap { $0.jpegData(compressionQuality: 0.6)?.base64EncodedString() }
-            .map { "data:image/jpeg;base64,\($0)" }
-        await appUserStore.updateProfile(photos: b64s)
+        let payload = "data:image/jpeg;base64,\(compressed.base64EncodedString())"
+        await MainActor.run {
+            extraPhotoPayloads[index] = payload
+            extraPhotoImages[index] = UIImage(data: compressed) ?? img
+            photoPickerItems[index] = nil
+        }
+        await persistExtraPhotos()
+    }
+
+    private func addPhotoToFirstEmptySlot(_ item: PhotosPickerItem?) async {
+        guard let item else { return }
+        guard let firstEmptyIndex = extraPhotoPayloads.firstIndex(where: { $0 == nil }) else {
+            await MainActor.run {
+                additionalPhotoPickerItem = nil
+                AppState.shared.showTimedToast("Once bir fotograf silin.")
+            }
+            return
+        }
+        await loadPhoto(item, index: firstEmptyIndex)
+        await MainActor.run {
+            additionalPhotoPickerItem = nil
+        }
+    }
+
+    private func removePhoto(at index: Int) async {
+        guard extraPhotoPayloads.indices.contains(index) else { return }
+        let keptPayloads = extraPhotoPayloads.enumerated()
+            .filter { $0.offset != index }
+            .compactMap(\.element)
+        await MainActor.run {
+            extraPhotoPayloads = keptPayloads.map(Optional.some)
+                + Array(repeating: nil, count: max(0, maxAdditionalPhotos - keptPayloads.count))
+            extraPhotoImages = extraPhotoPayloads.map { $0.flatMap { image(from: $0) } }
+            photoPickerItems = Array(repeating: nil, count: maxAdditionalPhotos)
+        }
+        await persistExtraPhotos()
+    }
+
+    private func removeAvatar() async {
+        let success = await appUserStore.updateProfile(avatarRemoved: true)
+        await MainActor.run {
+            if success {
+                localAvatar = nil
+                avatarPickerItem = nil
+                appUserStore.clearAvatarCache()
+            } else {
+                AppState.shared.showTimedToast(appUserStore.authErrorMessage ?? "Profil fotografi silinemedi.")
+            }
+        }
+    }
+
+    private func persistExtraPhotos() async {
+        let payloads = extraPhotoPayloads.compactMap { $0 }
+        let success = await appUserStore.updateProfile(photos: payloads)
+        await MainActor.run {
+            if success {
+                appUserStore.savePhotosToCache(extraPhotoImages.compactMap { $0 })
+            } else {
+                syncFromStore()
+                AppState.shared.showTimedToast(appUserStore.authErrorMessage ?? "Fotograflar guncellenemedi.")
+            }
+        }
+    }
+
+    private var resolvedAvatarImage: UIImage? {
+        localAvatar ?? appUserStore.cachedAvatarImage()
+    }
+
+    private var hasAvatar: Bool {
+        resolvedAvatarImage != nil || profileAvatarURL != nil
+    }
+
+    private func resolvedExtraPhotoImage(at index: Int) -> UIImage? {
+        guard extraPhotoImages.indices.contains(index) else { return nil }
+        return extraPhotoImages[index]
+    }
+
+    private func resolvedExtraPhotoURL(at index: Int) -> URL? {
+        guard extraPhotoPayloads.indices.contains(index),
+              let payload = extraPhotoPayloads[index],
+              !payload.hasPrefix("data:") else { return nil }
+        return URL(string: payload)
+    }
+
+    private func hasExtraPhoto(at index: Int) -> Bool {
+        guard extraPhotoPayloads.indices.contains(index) else { return false }
+        return extraPhotoPayloads[index] != nil
+    }
+
+    private func image(from payload: String) -> UIImage? {
+        if payload.hasPrefix("data:"),
+           let base64 = payload.components(separatedBy: ",").last,
+           let data = Data(base64Encoded: base64) {
+            return UIImage(data: data)
+        }
+        return nil
     }
 }
 
