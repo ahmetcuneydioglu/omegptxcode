@@ -102,6 +102,13 @@ app.post('/api/auth/social-login', authRateLimit, async (req, res) => {
     });
     
     const payload = ticket.getPayload();
+    const normalizedEmail = String(payload?.email || '').trim().toLowerCase();
+    const isEmailVerified = payload?.email_verified === true;
+
+    if (!normalizedEmail || !isEmailVerified) {
+      return res.status(400).json({ error: 'Doğrulanmış bir e-posta adresi gerekli' });
+    }
+
     const requestIp = getClientIp(req.headers['x-forwarded-for'] || req.socket.remoteAddress);
     const geo = geoip.lookup(requestIp);
     const country = normalizeCountry(geo ? geo.country : 'UN');
@@ -111,7 +118,7 @@ app.post('/api/auth/social-login', authRateLimit, async (req, res) => {
     if (!user) {
       user = new User({ 
         googleId: payload['sub'], 
-        email: payload['email'], 
+        email: normalizedEmail, 
         name: payload['name'], 
         avatar: payload['picture'], 
         country,
@@ -119,7 +126,7 @@ app.post('/api/auth/social-login', authRateLimit, async (req, res) => {
         isRegistered: true 
       });
     } else {
-      user.email = payload['email'];
+      user.email = normalizedEmail;
       user.name = payload['name'];
       user.avatar = payload['picture'];
       user.country = country;

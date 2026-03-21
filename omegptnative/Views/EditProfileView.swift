@@ -17,7 +17,6 @@ struct EditProfileView: View {
     @State private var draftInterests: [String] = []
 
     @State private var avatarPickerItem: PhotosPickerItem? = nil
-    @State private var additionalPhotoPickerItem: PhotosPickerItem? = nil
     @State private var photoPickerItems: [PhotosPickerItem?] = Array(repeating: nil, count: 3)
     @State private var localAvatar: UIImage? = nil
     @State private var extraPhotoPayloads: [String?] = Array(repeating: nil, count: 3)
@@ -31,7 +30,7 @@ struct EditProfileView: View {
 
     private let genders = ["Erkek", "Kadın", "Belirtmek istemiyorum"]
     private let maxAdditionalPhotos = 3
-
+    private let maxEncodedImageLength = 1_900_000
     private var completionPercent: Int {
         var score = 0
         if !draftName.isEmpty { score += 20 }
@@ -68,9 +67,6 @@ struct EditProfileView: View {
             .toolbar { toolbarContent }
             .onChange(of: avatarPickerItem) { _, item in
                 Task { await loadAvatar(item) }
-            }
-            .onChange(of: additionalPhotoPickerItem) { _, item in
-                Task { await addPhotoToFirstEmptySlot(item) }
             }
             .sheet(isPresented: $showInterestPicker) {
                 InterestPickerView(selectedInterests: Binding(
@@ -189,16 +185,27 @@ struct EditProfileView: View {
             photoGrid
                 .padding(.top, 4)
 
-            PhotosPicker(selection: $additionalPhotoPickerItem, matching: .images) {
-                Text("Fotoğraf yükle")
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 15)
-                    .background(accentRed, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            if extraPhotoPayloads.contains(where: { $0 != nil }) || extraPhotoImages.contains(where: { $0 != nil }) {
+                Button {
+                    Task { await clearAllExtraPhotos() }
+                } label: {
+                    Text("Ek fotoğrafları temizle")
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundStyle(accentRed)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(Color.white)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(accentRed.opacity(0.25), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
             }
-            .buttonStyle(.plain)
-            .padding(.top, 8)
         }
     }
 
@@ -216,7 +223,43 @@ struct EditProfileView: View {
 
     @ViewBuilder
     private func photoSlot(index: Int) -> some View {
-        ZStack(alignment: .topTrailing) {
+        if index == 0 {
+            PhotosPicker(selection: $avatarPickerItem, matching: .images) {
+                slotBase(index: index)
+                    .overlay(alignment: .topTrailing) {
+                        badgeIcon(name: hasAvatar ? "pencil" : "plus", filled: hasAvatar)
+                            .padding(6)
+                    }
+            }
+            .buttonStyle(.plain)
+        } else {
+            let photoIndex = index - 1
+            let binding = Binding<[PhotosPickerItem]>(
+                get: { photoPickerItems[photoIndex].map { [$0] } ?? [] },
+                set: { photoPickerItems[photoIndex] = $0.first }
+            )
+
+            if hasExtraPhoto(at: photoIndex) {
+                slotBase(index: index)
+            } else {
+                PhotosPicker(selection: binding, matching: .images) {
+                    slotBase(index: index)
+                        .overlay(alignment: .topTrailing) {
+                            badgeIcon(name: "plus", filled: false)
+                                .padding(6)
+                        }
+                }
+                .buttonStyle(.plain)
+                .onChange(of: photoPickerItems[photoIndex]) { _, item in
+                    Task { await loadPhoto(item, index: photoIndex) }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func slotBase(index: Int) -> some View {
+        ZStack {
             if index == 0, let avatar = resolvedAvatarImage {
                 Image(uiImage: avatar).resizable().scaledToFill()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -230,7 +273,8 @@ struct EditProfileView: View {
                             .scaledToFill()
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .clipped()
-                    default: Color(.systemFill)
+                    default:
+                        Color(.systemFill)
                     }
                 }
             } else if index > 0, let img = resolvedExtraPhotoImage(at: index - 1) {
@@ -256,64 +300,18 @@ struct EditProfileView: View {
                     .font(.system(size: 22, weight: .medium))
                     .foregroundStyle(Color(.tertiaryLabel))
             }
-
-            if index == 0 {
-                if hasAvatar {
-                    Button {
-                        Task { await removeAvatar() }
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(6)
-                            .background(Circle().fill(Color.black.opacity(0.45)))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(6)
-                } else {
-                    PhotosPicker(selection: $avatarPickerItem, matching: .images) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(Color(.tertiaryLabel))
-                            .padding(6)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(6)
-                }
-            } else {
-                let b = Binding<[PhotosPickerItem]>(
-                    get: { photoPickerItems[index - 1].map { [$0] } ?? [] },
-                    set: { photoPickerItems[index - 1] = $0.first }
-                )
-                if hasExtraPhoto(at: index - 1) {
-                    Button {
-                        Task { await removePhoto(at: index - 1) }
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(6)
-                            .background(Circle().fill(Color.black.opacity(0.45)))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(6)
-                } else {
-                    PhotosPicker(selection: b, matching: .images) {
-                        Image(systemName: "plus")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(Color(.tertiaryLabel))
-                        .padding(6)
-                        .background(Circle().fill(Color.clear))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(6)
-                    .onChange(of: photoPickerItems[index - 1]) { _, item in
-                        Task { await loadPhoto(item, index: index - 1) }
-                    }
-                }
-            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(cardBg)
+        .contentShape(Rectangle())
+    }
+
+    private func badgeIcon(name: String, filled: Bool) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 12, weight: .bold))
+            .foregroundStyle(filled ? .white : Color(.tertiaryLabel))
+            .padding(6)
+            .background(Circle().fill(filled ? Color.black.opacity(0.45) : Color.clear))
     }
 
     // MARK: - Interests Section
@@ -440,7 +438,7 @@ struct EditProfileView: View {
                 inputRow(icon: "envelope", placeholder: "Gerçek e-posta adresinizi girin", value: Binding(
                     get: { draftEmail },
                     set: { draftEmail = $0 }
-                ), keyboardType: .emailAddress)
+                ), keyboardType: .emailAddress, isEditable: false)
                 Divider().padding(.leading, 50)
                 dropdownRow(
                     icon: "person.2",
@@ -463,7 +461,8 @@ struct EditProfileView: View {
         icon: String,
         placeholder: String,
         value: Binding<String>,
-        keyboardType: UIKeyboardType = .default
+        keyboardType: UIKeyboardType = .default,
+        isEditable: Bool = true
     ) -> some View {
         HStack(spacing: 14) {
             Image(systemName: icon)
@@ -472,9 +471,10 @@ struct EditProfileView: View {
                 .frame(width: 22)
             TextField(placeholder, text: value)
                 .font(.system(size: 15, weight: .regular, design: .rounded))
-                .foregroundStyle(Color(.label))
+                .foregroundStyle(isEditable ? Color(.label) : Color(.secondaryLabel))
                 .keyboardType(keyboardType)
                 .autocorrectionDisabled()
+                .disabled(!isEditable)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 16)
@@ -582,10 +582,20 @@ struct EditProfileView: View {
             localAvatar = appUserStore.cachedAvatarImage()
         }
         let userPhotos = Array(user.photos.prefix(maxAdditionalPhotos))
+        let cachedPhotos = Array(appUserStore.cachedPhotos().prefix(maxAdditionalPhotos))
         extraPhotoPayloads = userPhotos.map(Optional.some)
             + Array(repeating: nil, count: max(0, maxAdditionalPhotos - userPhotos.count))
-        extraPhotoImages = extraPhotoPayloads.map { payload in
-            payload.flatMap { image(from: $0) }
+        extraPhotoImages = Array(repeating: nil, count: maxAdditionalPhotos)
+        for index in 0..<maxAdditionalPhotos {
+            if let payload = extraPhotoPayloads[index] {
+                extraPhotoImages[index] = image(from: payload)
+            }
+            if extraPhotoImages[index] == nil, cachedPhotos.indices.contains(index) {
+                extraPhotoImages[index] = cachedPhotos[index]
+                if extraPhotoPayloads[index] == nil {
+                    extraPhotoPayloads[index] = "local://photo_cache/\(index)"
+                }
+            }
         }
         photoPickerItems = Array(repeating: nil, count: maxAdditionalPhotos)
 
@@ -631,74 +641,70 @@ struct EditProfileView: View {
 
     private func loadAvatar(_ item: PhotosPickerItem?) async {
         guard let item, let data = try? await item.loadTransferable(type: Data.self),
-              let img = UIImage(data: data) else { return }
-        let compressed = img.jpegData(compressionQuality: 0.6) ?? data
-        appUserStore.saveAvatarToCache(compressed)
-        await MainActor.run { localAvatar = UIImage(data: compressed) ?? img }
-        let b64 = compressed.base64EncodedString()
+              let img = UIImage(data: data),
+              let prepared = prepareUploadImage(from: img) else {
+            await MainActor.run {
+                AppState.shared.showTimedToast("Fotograf islenemedi. Lutfen daha kucuk bir gorsel secin.")
+            }
+            return
+        }
+        appUserStore.saveAvatarToCache(prepared.data)
+        await MainActor.run { localAvatar = prepared.previewImage }
+        let b64 = prepared.base64
         await appUserStore.updateProfile(avatarBase64: b64)
     }
 
     private func loadPhoto(_ item: PhotosPickerItem?, index: Int) async {
         guard let item, let data = try? await item.loadTransferable(type: Data.self),
-              let img = UIImage(data: data) else { return }
-        let compressed = img.jpegData(compressionQuality: 0.6) ?? data
-        let payload = "data:image/jpeg;base64,\(compressed.base64EncodedString())"
+              let img = UIImage(data: data),
+              let prepared = prepareUploadImage(from: img) else {
+            await MainActor.run {
+                AppState.shared.showTimedToast("Fotograf islenemedi. Lutfen daha kucuk bir gorsel secin.")
+            }
+            return
+        }
+        let payload = "data:image/jpeg;base64,\(prepared.base64)"
         await MainActor.run {
             extraPhotoPayloads[index] = payload
-            extraPhotoImages[index] = UIImage(data: compressed) ?? img
+            extraPhotoImages[index] = prepared.previewImage
             photoPickerItems[index] = nil
         }
         await persistExtraPhotos()
     }
 
-    private func addPhotoToFirstEmptySlot(_ item: PhotosPickerItem?) async {
-        guard let item else { return }
-        guard let firstEmptyIndex = extraPhotoPayloads.firstIndex(where: { $0 == nil }) else {
-            await MainActor.run {
-                additionalPhotoPickerItem = nil
-                AppState.shared.showTimedToast("Once bir fotograf silin.")
-            }
-            return
-        }
-        await loadPhoto(item, index: firstEmptyIndex)
+    private func clearAllExtraPhotos() async {
         await MainActor.run {
-            additionalPhotoPickerItem = nil
-        }
-    }
-
-    private func removePhoto(at index: Int) async {
-        guard extraPhotoPayloads.indices.contains(index) else { return }
-        let keptPayloads = extraPhotoPayloads.enumerated()
-            .filter { $0.offset != index }
-            .compactMap(\.element)
-        await MainActor.run {
-            extraPhotoPayloads = keptPayloads.map(Optional.some)
-                + Array(repeating: nil, count: max(0, maxAdditionalPhotos - keptPayloads.count))
-            extraPhotoImages = extraPhotoPayloads.map { $0.flatMap { image(from: $0) } }
+            extraPhotoPayloads = Array(repeating: nil, count: maxAdditionalPhotos)
+            extraPhotoImages = Array(repeating: nil, count: maxAdditionalPhotos)
             photoPickerItems = Array(repeating: nil, count: maxAdditionalPhotos)
         }
-        await persistExtraPhotos()
-    }
 
-    private func removeAvatar() async {
-        let success = await appUserStore.updateProfile(avatarRemoved: true)
+        let success = await appUserStore.updateProfile(photos: [])
         await MainActor.run {
             if success {
-                localAvatar = nil
-                avatarPickerItem = nil
-                appUserStore.clearAvatarCache()
+                appUserStore.clearPhotosCache()
             } else {
-                AppState.shared.showTimedToast(appUserStore.authErrorMessage ?? "Profil fotografi silinemedi.")
+                syncFromStore()
+                AppState.shared.showTimedToast(appUserStore.authErrorMessage ?? "Fotograflar silinemedi.")
             }
         }
     }
 
     private func persistExtraPhotos() async {
-        let payloads = extraPhotoPayloads.compactMap { $0 }
+        let payloads = extraPhotoPayloads.enumerated().compactMap { index, payload -> String? in
+            if let payload, !payload.hasPrefix("local://") {
+                return payload
+            }
+            guard extraPhotoImages.indices.contains(index),
+                  let image = extraPhotoImages[index],
+                  let prepared = prepareUploadImage(from: image) else { return nil }
+            return "data:image/jpeg;base64,\(prepared.base64)"
+        }
         let success = await appUserStore.updateProfile(photos: payloads)
         await MainActor.run {
             if success {
+                extraPhotoPayloads = payloads.map(Optional.some)
+                    + Array(repeating: nil, count: max(0, maxAdditionalPhotos - payloads.count))
                 appUserStore.savePhotosToCache(extraPhotoImages.compactMap { $0 })
             } else {
                 syncFromStore()
@@ -729,7 +735,13 @@ struct EditProfileView: View {
 
     private func hasExtraPhoto(at index: Int) -> Bool {
         guard extraPhotoPayloads.indices.contains(index) else { return false }
-        return extraPhotoPayloads[index] != nil
+        if extraPhotoPayloads[index] != nil {
+            return true
+        }
+        if extraPhotoImages.indices.contains(index), extraPhotoImages[index] != nil {
+            return true
+        }
+        return resolvedExtraPhotoURL(at: index) != nil
     }
 
     private func image(from payload: String) -> UIImage? {
@@ -739,6 +751,42 @@ struct EditProfileView: View {
             return UIImage(data: data)
         }
         return nil
+    }
+
+    private func prepareUploadImage(from image: UIImage) -> (data: Data, base64: String, previewImage: UIImage)? {
+        let maxDimensions: [CGFloat] = [1600, 1400, 1200, 1000, 840, 720, 600]
+        let qualities: [CGFloat] = [0.72, 0.6, 0.5, 0.4, 0.3, 0.22, 0.16]
+
+        for maxDimension in maxDimensions {
+            let scaledImage = resizedImageIfNeeded(image, maxDimension: maxDimension)
+            for quality in qualities {
+                guard let jpegData = scaledImage.jpegData(compressionQuality: quality) else { continue }
+                let base64 = jpegData.base64EncodedString()
+                if base64.count <= maxEncodedImageLength {
+                    return (jpegData, base64, UIImage(data: jpegData) ?? scaledImage)
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private func resizedImageIfNeeded(_ image: UIImage, maxDimension: CGFloat) -> UIImage {
+        let longestSide = max(image.size.width, image.size.height)
+        guard longestSide > maxDimension, longestSide > 0 else { return image }
+
+        let scaleRatio = maxDimension / longestSide
+        let newSize = CGSize(
+            width: max(1, floor(image.size.width * scaleRatio)),
+            height: max(1, floor(image.size.height * scaleRatio))
+        )
+
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: newSize, format: format)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: newSize))
+        }
     }
 }
 

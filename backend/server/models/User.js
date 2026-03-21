@@ -5,6 +5,8 @@ const UserSchema = new mongoose.Schema({
   email: { type: String, unique: true, sparse: true },
   name: String,
   avatar: String,
+  gender: { type: String, default: null },
+  birthDate: { type: String, default: null },
   country: { type: String, default: null },
   countryFlag: { type: String, default: null },
   bio: { type: String, default: "", maxLength: 150 },
