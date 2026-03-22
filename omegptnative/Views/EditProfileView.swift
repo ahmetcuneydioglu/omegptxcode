@@ -69,6 +69,37 @@ private let lookingForOptions: [String] = [
     "A life partner",
     "Ethical non-monogamy"
 ]
+private let languageOptions: [String] = [
+    "Turkish",
+    "English",
+    "Portuguese",
+    "German",
+    "French",
+    "Spanish",
+    "Italian",
+    "Arabic",
+    "Russian",
+    "Dutch"
+]
+
+private struct EditProfilePreviewSnapshot: Identifiable {
+    let id = UUID()
+    let name: String
+    let ageText: String?
+    let bio: String
+    let work: String
+    let education: String
+    let gender: String
+    let heightText: String?
+    let exercise: String
+    let location: String
+    let hometown: String
+    let lookingFor: [String]
+    let interests: [String]
+    let languages: [String]
+    let avatarImage: UIImage?
+    let avatarURL: URL?
+}
 
 @MainActor
 private func saveTextProfileField(
@@ -149,6 +180,7 @@ struct EditProfileView: View {
     @State private var draftHeight: Int?
     @State private var draftExercise: String = ""
     @State private var draftLookingFor: [String] = []
+    @State private var draftLanguages: [String] = []
     @State private var draftInterests: [String] = []
 
     @State private var avatarPickerItem: PhotosPickerItem? = nil
@@ -158,6 +190,7 @@ struct EditProfileView: View {
     @State private var extraPhotoImages: [UIImage?] = Array(repeating: nil, count: 3)
 
     @State private var showInterestPicker = false
+    @State private var previewSnapshot: EditProfilePreviewSnapshot?
     @State private var isSaving = false
     @State private var interestDraftBeforePicker: [String] = []
 
@@ -193,7 +226,8 @@ struct EditProfileView: View {
         let p3 = "|\(user.education ?? "")|\(user.location ?? "")|\(user.hometown ?? "")"
         let p4 = "|\(user.exercise ?? "")|\(user.height ?? -1)"
         let p5 = "|\(user.lookingFor.joined(separator: "~"))"
-        return p1 + p2 + p3 + p4 + p5
+        let p6 = "|\(user.languages.joined(separator: "~"))"
+        return p1 + p2 + p3 + p4 + p5 + p6
     }
 
     var body: some View {
@@ -232,6 +266,9 @@ struct EditProfileView: View {
                 }
                 .presentationBackground(.clear)
             }
+            .fullScreenCover(item: $previewSnapshot) { snapshot in
+                EditProfilePreviewView(snapshot: snapshot)
+            }
         }
         .colorScheme(.light)
         .onAppear { syncFromStore() }
@@ -266,18 +303,29 @@ struct EditProfileView: View {
                 .foregroundStyle(Color(.label))
         }
         ToolbarItem(placement: .navigationBarTrailing) {
-            Button {
-                Task { await saveAll() }
-            } label: {
-                if isSaving {
-                    ProgressView().tint(.gray)
-                } else {
-                    Text("Kaydet")
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Color(.secondaryLabel))
+            HStack(spacing: 14) {
+                Button {
+                    previewSnapshot = makePreviewSnapshot()
+                } label: {
+                    Text("Preview")
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color(.label))
                 }
+                .buttonStyle(.plain)
+
+                Button {
+                    Task { await saveAll() }
+                } label: {
+                    if isSaving {
+                        ProgressView().tint(.gray)
+                    } else {
+                        Text("Kaydet")
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color(.secondaryLabel))
+                    }
+                }
+                .disabled(isSaving)
             }
-            .disabled(isSaving)
         }
     }
 
@@ -704,6 +752,17 @@ struct EditProfileView: View {
             } label: {
                 aboutRow(icon: "magnifyingglass", title: "Looking for", value: lookingForDisplay)
             }
+
+            Divider().padding(.leading, 52)
+
+            NavigationLink {
+                EditProfileLanguagesDetailView(
+                    options: languageOptions,
+                    selectedValues: draftLanguages
+                )
+            } label: {
+                aboutRow(icon: "ellipsis.bubble", title: "Languages", value: languagesDisplay)
+            }
         }
     }
 
@@ -814,6 +873,37 @@ struct EditProfileView: View {
     private var lookingForDisplay: String {
         guard !draftLookingFor.isEmpty else { return "Add" }
         return draftLookingFor.joined(separator: ", ")
+    }
+
+    private var languagesDisplay: String {
+        guard !draftLanguages.isEmpty else { return "Add" }
+        return draftLanguages.joined(separator: ", ")
+    }
+
+    private func makePreviewSnapshot() -> EditProfilePreviewSnapshot {
+        let ageText: String? = {
+            guard hasBirthDateValue else { return nil }
+            let years = Calendar.current.dateComponents([.year], from: draftBirthDate, to: .now).year ?? 0
+            return years > 0 ? "\(years)" : nil
+        }()
+
+        return EditProfilePreviewSnapshot(
+            name: draftName.trimmingCharacters(in: .whitespacesAndNewlines),
+            ageText: ageText,
+            bio: draftBio.trimmingCharacters(in: .whitespacesAndNewlines),
+            work: draftWork.trimmingCharacters(in: .whitespacesAndNewlines),
+            education: draftEducation.trimmingCharacters(in: .whitespacesAndNewlines),
+            gender: draftGender.trimmingCharacters(in: .whitespacesAndNewlines),
+            heightText: draftHeight.map { "\($0) cm" },
+            exercise: draftExercise.trimmingCharacters(in: .whitespacesAndNewlines),
+            location: draftLocation.trimmingCharacters(in: .whitespacesAndNewlines),
+            hometown: draftHometown.trimmingCharacters(in: .whitespacesAndNewlines),
+            lookingFor: draftLookingFor,
+            interests: draftInterests,
+            languages: draftLanguages,
+            avatarImage: resolvedAvatarImage,
+            avatarURL: profileAvatarURL
+        )
     }
 
     @MainActor
@@ -928,6 +1018,7 @@ struct EditProfileView: View {
         draftHeight = user.height
         draftExercise = user.exercise ?? ""
         draftLookingFor = user.lookingFor
+        draftLanguages = user.languages
         draftInterests = user.interests
         if user.avatar == nil {
             localAvatar = nil
@@ -1969,6 +2060,479 @@ private struct EditProfileLookingForDetailView: View {
                 .frame(width: 42, height: 42)
         }
     }
+}
+
+private struct EditProfileLanguagesDetailView: View {
+    let options: [String]
+    let selectedValues: [String]
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var selection: [String]
+    @State private var isSaving = false
+
+    init(options: [String], selectedValues: [String]) {
+        self.options = options
+        self.selectedValues = selectedValues
+        _selection = State(initialValue: selectedValues)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(Color(.label))
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                Capsule()
+                    .fill(Color(.systemGray4))
+                    .frame(width: 160, height: 5)
+
+                Spacer()
+
+                Color.clear
+                    .frame(width: 44, height: 44)
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 8)
+            .padding(.bottom, 18)
+
+            Divider()
+
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 22) {
+                    VStack(spacing: 12) {
+                        Image(systemName: "ellipsis.bubble")
+                            .font(.system(size: 50, weight: .regular))
+                            .foregroundStyle(Color(.label))
+                            .padding(.top, 28)
+
+                        Text("Which languages do you speak?")
+                            .font(.system(size: 25, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color(.label))
+                            .multilineTextAlignment(.center)
+
+                        Text("You can choose up to 5 options.")
+                            .font(.system(size: 16, weight: .regular, design: .rounded))
+                            .foregroundStyle(Color(.secondaryLabel))
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.horizontal, 24)
+
+                    VStack(spacing: 16) {
+                        ForEach(options, id: \.self) { option in
+                            Button {
+                                toggle(option)
+                            } label: {
+                                HStack(spacing: 14) {
+                                    Spacer(minLength: 0)
+
+                                    Text(option)
+                                        .font(.system(size: 19, weight: .medium, design: .rounded))
+                                        .foregroundStyle(Color(.label))
+                                        .multilineTextAlignment(.center)
+                                        .frame(maxWidth: .infinity)
+
+                                    if selection.contains(option) {
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 18, weight: .bold))
+                                            .foregroundStyle(.white)
+                                            .frame(width: 42, height: 42)
+                                            .background(Color(.label), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                    } else {
+                                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                            .stroke(Color(.systemGray3), lineWidth: 1.5)
+                                            .frame(width: 42, height: 42)
+                                    }
+                                }
+                                .padding(.horizontal, 18)
+                                .padding(.vertical, 24)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                        .fill(cardBg)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                        .stroke(Color(.systemGray5), lineWidth: 1.5)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 14)
+                    .padding(.bottom, 24)
+                }
+            }
+
+            Button {
+                if selection == selectedValues {
+                    dismiss()
+                    return
+                }
+
+                isSaving = true
+                Task { @MainActor in
+                    let success = await AuthManager.shared.updateLanguages(selection)
+                    isSaving = false
+                    if success {
+                        dismiss()
+                    } else {
+                        AppState.shared.showTimedToast(AuthManager.shared.authErrorMessage ?? "Diller guncellenemedi.")
+                    }
+                }
+            } label: {
+                Text(isSaving ? "Saving..." : "Save and close")
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 18)
+                    .background(Color(.label), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(isSaving)
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 18)
+            .background(pageBg)
+        }
+        .background(pageBg.ignoresSafeArea())
+        .navigationBarBackButtonHidden(true)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func toggle(_ option: String) {
+        if let index = selection.firstIndex(of: option) {
+            selection.remove(at: index)
+            return
+        }
+
+        guard selection.count < 5 else {
+            AppState.shared.showTimedToast("En fazla 5 dil secebilirsin.")
+            return
+        }
+
+        selection.append(option)
+    }
+}
+
+private struct EditProfilePreviewView: View {
+    let snapshot: EditProfilePreviewSnapshot
+    @Environment(\.dismiss) private var dismiss
+
+    private var titleText: String {
+        let displayName = snapshot.name.isEmpty ? "Your profile" : snapshot.name
+        if let ageText = snapshot.ageText, !ageText.isEmpty {
+            return "\(displayName), \(ageText)"
+        }
+        return displayName
+    }
+
+    private var aboutChips: [PreviewChip] {
+        var chips: [PreviewChip] = []
+        if let heightText = snapshot.heightText, !heightText.isEmpty {
+            chips.append(PreviewChip(icon: "ruler", text: heightText))
+        }
+        if !snapshot.exercise.isEmpty {
+            chips.append(PreviewChip(icon: "dumbbell", text: snapshot.exercise))
+        }
+        if !snapshot.gender.isEmpty {
+            chips.append(PreviewChip(icon: "figure.stand", text: snapshot.gender))
+        }
+        if !snapshot.location.isEmpty {
+            chips.append(PreviewChip(icon: "mappin.and.ellipse", text: snapshot.location))
+        }
+        if !snapshot.hometown.isEmpty {
+            chips.append(PreviewChip(icon: "house", text: snapshot.hometown))
+        }
+        return chips
+    }
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 18) {
+                    previewHeader
+                    heroCard
+
+                    if !snapshot.bio.isEmpty {
+                        previewCard(title: "My bio") {
+                            Text(snapshot.bio)
+                                .font(.system(size: 19, weight: .regular, design: .rounded))
+                                .foregroundStyle(Color(.label))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+
+                    if !aboutChips.isEmpty {
+                        previewCard(title: "About me") {
+                            previewChipFlow(chips: aboutChips)
+                        }
+                    }
+
+                    if !snapshot.lookingFor.isEmpty {
+                        previewCard(title: "I'm looking for") {
+                            previewChipFlow(
+                                chips: snapshot.lookingFor.map { PreviewChip(icon: "magnifyingglass", text: $0) }
+                            )
+                        }
+                    }
+
+                    if !snapshot.interests.isEmpty {
+                        previewCard(title: "My interests") {
+                            VStack(alignment: .leading, spacing: 18) {
+                                highlightInterestCard
+                                previewChipFlow(
+                                    chips: snapshot.interests.map { PreviewChip(icon: interestEmoji(for: $0), text: $0, usesSymbolIcon: false) }
+                                )
+                            }
+                        }
+                    }
+
+                    if !snapshot.languages.isEmpty {
+                        previewCard(title: "Languages") {
+                            previewChipFlow(
+                                chips: snapshot.languages.map { PreviewChip(icon: "ellipsis.bubble", text: $0) }
+                            )
+                        }
+                    }
+
+                    Spacer(minLength: 100)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 10)
+                .padding(.bottom, 24)
+            }
+            .background(pageBg.ignoresSafeArea())
+
+            Button {
+                dismiss()
+            } label: {
+                Text("Edit profile")
+                    .font(.system(size: 19, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 20)
+                    .background(Color(.label), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
+            .background(
+                LinearGradient(
+                    colors: [pageBg.opacity(0), pageBg.opacity(0.94), pageBg],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 120)
+                .allowsHitTesting(false),
+                alignment: .bottom
+            )
+        }
+        .background(pageBg.ignoresSafeArea())
+    }
+
+    private var previewHeader: some View {
+        HStack {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 24, weight: .medium))
+                    .foregroundStyle(Color(.label))
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            Text(titleText)
+                .font(.system(size: 21, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(.label))
+
+            Spacer()
+
+            Color.clear
+                .frame(width: 44, height: 44)
+        }
+    }
+
+    private var heroCard: some View {
+        ZStack(alignment: .bottomLeading) {
+            Group {
+                if let avatarImage = snapshot.avatarImage {
+                    Image(uiImage: avatarImage)
+                        .resizable()
+                        .scaledToFill()
+                } else if let avatarURL = snapshot.avatarURL {
+                    AsyncImage(url: avatarURL) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+                        default:
+                            previewHeroPlaceholder
+                        }
+                    }
+                } else {
+                    previewHeroPlaceholder
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 620)
+            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+
+            LinearGradient(
+                colors: [Color.clear, Color.black.opacity(0.08), Color.black.opacity(0.72)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text(titleText)
+                    .font(.system(size: 28, weight: .black, design: .rounded))
+                    .foregroundStyle(.white)
+
+                if !snapshot.work.isEmpty {
+                    previewHeroInfo(icon: "briefcase", text: snapshot.work)
+                }
+
+                if !snapshot.education.isEmpty {
+                    previewHeroInfo(icon: "graduationcap", text: snapshot.education)
+                }
+            }
+            .padding(.horizontal, 22)
+            .padding(.bottom, 26)
+        }
+        .shadow(color: .black.opacity(0.08), radius: 14, x: 0, y: 6)
+    }
+
+    private var previewHeroPlaceholder: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color(red: 0.90, green: 0.92, blue: 0.97), Color(red: 0.82, green: 0.87, blue: 0.98)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            VStack(spacing: 14) {
+                Image(systemName: "person.crop.rectangle")
+                    .font(.system(size: 64, weight: .light))
+                    .foregroundStyle(Color.white.opacity(0.9))
+                Text("Add a profile photo")
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color.white.opacity(0.95))
+            }
+        }
+    }
+
+    private func previewHeroInfo(icon: String, text: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 18)
+
+            Text(text)
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+        }
+    }
+
+    private func previewCard<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text(title)
+                .font(.system(size: 19, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(.label))
+
+            content()
+        }
+        .padding(22)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(cardBg, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .shadow(color: .black.opacity(0.06), radius: 14, x: 0, y: 5)
+    }
+
+    private func previewChipFlow(chips: [PreviewChip]) -> some View {
+        WrapLayout(hSpacing: 10, vSpacing: 12) {
+            ForEach(chips) { chip in
+                HStack(spacing: 10) {
+                    if chip.usesSymbolIcon {
+                        Image(systemName: chip.icon)
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(Color(.label))
+                    } else {
+                        Text(chip.icon)
+                            .font(.system(size: 18))
+                    }
+
+                    Text(chip.text)
+                        .font(.system(size: 17, weight: .medium, design: .rounded))
+                        .foregroundStyle(Color(.label))
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+                .background(Color(.systemGray6), in: Capsule())
+            }
+        }
+    }
+
+    private var highlightInterestCard: some View {
+        let firstInterest = snapshot.interests.first ?? "new things"
+        let firstName = snapshot.name.isEmpty ? "You" : snapshot.name
+        return HStack(spacing: 14) {
+            Text("\(firstName) loves \(firstInterest.lowercased())")
+                .font(.system(size: 18, weight: .medium, design: .rounded))
+                .foregroundStyle(Color(.label))
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(interestEmoji(for: firstInterest))
+                .font(.system(size: 34))
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 22)
+        .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+    }
+
+    private func interestEmoji(for interest: String) -> String {
+        switch interest.lowercased() {
+        case let value where value.contains("gym"), let value where value.contains("spor"):
+            return "🏋️"
+        case let value where value.contains("dance"), let value where value.contains("dans"):
+            return "💃"
+        case let value where value.contains("run"), let value where value.contains("kos"):
+            return "👟"
+        case let value where value.contains("astro"):
+            return "💫"
+        case let value where value.contains("design"):
+            return "✏️"
+        case let value where value.contains("kahve"), let value where value.contains("coffee"):
+            return "☕️"
+        case let value where value.contains("muzik"), let value where value.contains("music"):
+            return "🎵"
+        case let value where value.contains("sinema"), let value where value.contains("movie"):
+            return "🎬"
+        case let value where value.contains("seyahat"), let value where value.contains("travel"):
+            return "✈️"
+        default:
+            return "✨"
+        }
+    }
+}
+
+private struct PreviewChip: Identifiable {
+    let id = UUID()
+    let icon: String
+    let text: String
+    var usesSymbolIcon = true
 }
 
 private struct EditProfileDirectHeightDetailView: View {

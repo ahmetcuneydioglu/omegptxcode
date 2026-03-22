@@ -14,6 +14,7 @@ const UserSchema = new mongoose.Schema({
   height: { type: Number, default: null },
   exercise: { type: String, default: null },
   lookingFor: { type: [String], default: [] },
+  languages: { type: [String], default: [] },
   country: { type: String, default: null },
   countryFlag: { type: String, default: null },
   bio: { type: String, default: "", maxLength: 150 },

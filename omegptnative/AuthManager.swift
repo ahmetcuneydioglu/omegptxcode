@@ -316,6 +316,33 @@ final class AuthManager {
         }
     }
 
+    func updateLanguages(_ languages: [String]) async -> Bool {
+        guard currentUser != nil else { return false }
+
+        do {
+            print("🧭 [AuthManager][updateLanguages] sending value='\(languages)'")
+            try await networkManager.postWithoutDecoding(
+                path: "/api/users/update-profile",
+                body: ["languages": languages]
+            )
+
+            guard var user = currentUser else { return false }
+            user.languages = languages
+            currentUser = user
+            authErrorMessage = nil
+            persistSession()
+            print("🧭 [AuthManager][updateLanguages] success")
+            return true
+        } catch NetworkError.unauthorized {
+            handleUnauthorized()
+            return false
+        } catch {
+            authErrorMessage = "Diller guncellenemedi."
+            print("⚠️ updateLanguages error: \(error)")
+            return false
+        }
+    }
+
     func updateProfile(
         name: String? = nil,
         avatarBase64: String? = nil,
@@ -331,7 +358,8 @@ final class AuthManager {
         hometown: String? = nil,
         height: Int? = nil,
         exercise: String? = nil,
-        lookingFor: [String]? = nil
+        lookingFor: [String]? = nil,
+        languages: [String]? = nil
     ) async -> Bool {
         guard currentUser != nil else { return false }
         var payload: [String: Any] = [:]
@@ -350,6 +378,7 @@ final class AuthManager {
         if let height { payload["height"] = height }
         if let exercise { payload["exercise"] = exercise }
         if let lookingFor { payload["lookingFor"] = lookingFor }
+        if let languages { payload["languages"] = languages }
 
         do {
             print("🧭 [AuthManager][updateProfile] sending keys=\(Array(payload.keys).sorted())")
@@ -372,7 +401,8 @@ final class AuthManager {
                 hometown: hometown,
                 height: height,
                 exercise: exercise,
-                lookingFor: lookingFor
+                lookingFor: lookingFor,
+                languages: languages
             )
             authErrorMessage = nil
             persistSession()
@@ -487,7 +517,8 @@ final class AuthManager {
         hometown: String?,
         height: Int?,
         exercise: String?,
-        lookingFor: [String]?
+        lookingFor: [String]?,
+        languages: [String]?
     ) {
         guard var user = currentUser else { return }
 
@@ -510,6 +541,7 @@ final class AuthManager {
         if let height { user.height = height }
         if let exercise { user.exercise = exercise }
         if let lookingFor { user.lookingFor = lookingFor }
+        if let languages { user.languages = languages }
 
         if avatarRemoved {
             user.avatar = nil

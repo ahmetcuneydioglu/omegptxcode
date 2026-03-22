@@ -1522,6 +1522,12 @@ app.post('/api/users/update-profile', requireAuth, userActionRateLimit, async (r
         .filter(Boolean)
         .slice(0, 2);
     }
+    if (Array.isArray(parsed.languages)) {
+      updateData.languages = parsed.languages
+        .map((item) => String(item).trim())
+        .filter(Boolean)
+        .slice(0, 5);
+    }
 
     if (Object.keys(updateData).length === 0) {
       return res.status(400).json({ error: 'Güncellenecek alan bulunamadı' });
@@ -1533,6 +1539,9 @@ app.post('/api/users/update-profile', requireAuth, userActionRateLimit, async (r
     }
     if (Object.prototype.hasOwnProperty.call(updateData, 'lookingFor')) {
       updateData.lookingFor = [...updateData.lookingFor];
+    }
+    if (Object.prototype.hasOwnProperty.call(updateData, 'languages')) {
+      updateData.languages = [...updateData.languages];
     }
 
     const updatedUser = await User.findByIdAndUpdate(
