@@ -41,6 +41,14 @@ app.use(cors({
 
 app.use(express.json({ limit: '10mb' }));
 
+function normalizePlaceLabel(rawValue = '') {
+  return String(rawValue)
+    .replace(/\s+/g, ' ')
+    .replace(/\s*,\s*/g, ', ')
+    .trim()
+    .slice(0, 120);
+}
+
 app.use((req, res, next) => {
     if (req.header('x-forwarded-proto') !== 'https' && NODE_ENV === 'production') {
         res.redirect(`https://${req.header('host')}${req.url}`);
@@ -1497,16 +1505,22 @@ app.post('/api/users/update-profile', requireAuth, userActionRateLimit, async (r
       updateData.education = parsed.education.trim();
     }
     if (typeof parsed.location === 'string' && parsed.location.trim()) {
-      updateData.location = parsed.location.trim();
+      updateData.location = normalizePlaceLabel(parsed.location);
     }
     if (typeof parsed.hometown === 'string' && parsed.hometown.trim()) {
-      updateData.hometown = parsed.hometown.trim();
+      updateData.hometown = normalizePlaceLabel(parsed.hometown);
     }
     if (Number.isInteger(parsed.height)) {
       updateData.height = parsed.height;
     }
     if (typeof parsed.exercise === 'string' && parsed.exercise.trim()) {
       updateData.exercise = parsed.exercise.trim();
+    }
+    if (Array.isArray(parsed.lookingFor)) {
+      updateData.lookingFor = parsed.lookingFor
+        .map((item) => String(item).trim())
+        .filter(Boolean)
+        .slice(0, 2);
     }
 
     if (Object.keys(updateData).length === 0) {
@@ -1516,6 +1530,9 @@ app.post('/api/users/update-profile', requireAuth, userActionRateLimit, async (r
     if (Object.prototype.hasOwnProperty.call(updateData, 'interests')) {
       // Always replace the full list; never merge with existing interests.
       updateData.interests = [...updateData.interests];
+    }
+    if (Object.prototype.hasOwnProperty.call(updateData, 'lookingFor')) {
+      updateData.lookingFor = [...updateData.lookingFor];
     }
 
     const updatedUser = await User.findByIdAndUpdate(

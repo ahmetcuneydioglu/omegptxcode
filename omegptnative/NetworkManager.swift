@@ -62,6 +62,12 @@ final class NetworkManager {
         try await requestJSON(path: path, method: "POST", body: body, requiresAuth: requiresAuth)
     }
 
+    func postWithoutDecoding(path: String, body: [String: Any]? = nil, requiresAuth: Bool = true) async throws {
+        let request = try makeRequest(path: path, method: "POST", body: body, requiresAuth: requiresAuth)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        _ = try validate(response: response, data: data)
+    }
+
     func requestJSON(
         path: String,
         method: String,

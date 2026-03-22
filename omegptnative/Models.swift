@@ -34,6 +34,7 @@ struct User: Codable, Identifiable {
     var hometown: String?
     var height: Int?
     var exercise: String?
+    var lookingFor: [String]
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -62,6 +63,7 @@ struct User: Codable, Identifiable {
         case hometown
         case height
         case exercise
+        case lookingFor
         case balance
         case tickets
     }
@@ -93,6 +95,7 @@ struct User: Codable, Identifiable {
         self.hometown = try container.decodeIfPresent(String.self, forKey: .hometown)
         self.height = try container.decodeIfPresent(Int.self, forKey: .height)
         self.exercise = try container.decodeIfPresent(String.self, forKey: .exercise)
+        self.lookingFor = try container.decodeIfPresent([String].self, forKey: .lookingFor) ?? []
         let gemsValue = try container.decodeIfPresent(Int.self, forKey: .gems)
         let balanceValue = try container.decodeIfPresent(Int.self, forKey: .balance)
         let ticketsValue = try container.decodeIfPresent(Int.self, forKey: .tickets)
@@ -126,6 +129,7 @@ struct User: Codable, Identifiable {
         try container.encodeIfPresent(hometown, forKey: .hometown)
         try container.encodeIfPresent(height, forKey: .height)
         try container.encodeIfPresent(exercise, forKey: .exercise)
+        try container.encode(lookingFor, forKey: .lookingFor)
     }
 }
 
