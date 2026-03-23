@@ -59,6 +59,8 @@ final class SocketService {
     private(set) var partner: PartnerFoundPayload?
     var activePartnerId: String? = nil
     private(set) var activeMatch: PartnerFoundPayload?
+    private(set) var sessionStage: MatchSessionStage = .idle
+    private(set) var activeCallMode: CallRequestMode?
     private(set) var isSearching = false
     private(set) var totalReceivedLikes = 0
     var banEvent: BanEvent?
@@ -75,6 +77,7 @@ final class SocketService {
     var privateCallNotice: PrivateCallNotice?
     private(set) var outgoingPrivateCallTargetId: String?
     private(set) var outgoingPrivateCallPhase: PrivateCallRequestPhase?
+    private(set) var outgoingCallMode: CallRequestMode?
     private(set) var userOnlineStates: [String: UserStatus] = [:]
     private(set) var myStatus: UserStatus = .offline
     private(set) var isAwaitingSearchStart = false
@@ -142,6 +145,8 @@ final class SocketService {
         myStatus = .offline
         webRTCManager.endSession()
         isSearching = false
+        sessionStage = .idle
+        activeCallMode = nil
         activePartnerId = nil
         activeMatch = nil
         partner = nil
@@ -154,6 +159,7 @@ final class SocketService {
         privateCallNotice = nil
         outgoingPrivateCallTargetId = nil
         outgoingPrivateCallPhase = nil
+        outgoingCallMode = nil
         markObservedUsersOffline()
         privateCallPhaseWorkItem?.cancel()
         privateCallPhaseWorkItem = nil
@@ -190,6 +196,7 @@ final class SocketService {
 
         lockFindPartnerEmit(for: 8.0)
         isAwaitingSearchStart = true
+        sessionStage = .searching
 
         let currentGender: String? = payload.myGender
         let preferredGender: String? = payload.searchGender
@@ -207,6 +214,7 @@ final class SocketService {
             self?.handleFindPartnerAck(data)
         }
         isSearching = true
+        sessionStage = .searching
         activePartnerId = nil
         activeMatch = nil
         partner = nil
@@ -391,12 +399,15 @@ final class SocketService {
         #endif
         activePartnerId = nil
         activeMatch = nil
+        sessionStage = .idle
+        activeCallMode = nil
         messages.removeAll()
         isPartnerTyping = false
         partnerName = nil
         partnerAvatarURL = nil
         outgoingPrivateCallTargetId = nil
         outgoingPrivateCallPhase = nil
+        outgoingCallMode = nil
         privateCallPhaseWorkItem?.cancel()
         privateCallPhaseWorkItem = nil
     }
@@ -410,6 +421,8 @@ final class SocketService {
         webRTCManager.endSession()
         activePartnerId = nil
         activeMatch = nil
+        sessionStage = .idle
+        activeCallMode = nil
         isSearching = false
         messages.removeAll()
         isPartnerTyping = false
@@ -418,6 +431,7 @@ final class SocketService {
         outgoingPrivateCallTargetId = nil
         incomingPrivateCall = nil
         outgoingPrivateCallPhase = nil
+        outgoingCallMode = nil
         privateCallPhaseWorkItem?.cancel()
         privateCallPhaseWorkItem = nil
     }
@@ -430,13 +444,15 @@ final class SocketService {
         #if canImport(SocketIO)
         guard !targetUserId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let payload: [String: Any] = [
-            "targetUserId": targetUserId
+            "targetUserId": targetUserId,
+            "mode": CallRequestMode.video.rawValue
         ]
         print("DEBUG: Calling target with DB ID: \(targetUserId)")
         print("Socket: Emitting private_call_request for \(targetUserId)")
         print("📞 Emitting private_call_request: \(payload)")
         outgoingPrivateCallTargetId = targetUserId
         outgoingPrivateCallPhase = .checking
+        outgoingCallMode = .video
         privateCallPhaseWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
             guard let self, self.outgoingPrivateCallTargetId == targetUserId else { return }
@@ -445,6 +461,25 @@ final class SocketService {
         privateCallPhaseWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.9, execute: workItem)
         socket?.emit("private_call_request", payload)
+        #endif
+    }
+
+    func requestVoiceCall(partnerId: String) {
+        #if canImport(SocketIO)
+        let trimmedPartnerId = partnerId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPartnerId.isEmpty else { return }
+        let payload: [String: Any] = ["targetId": trimmedPartnerId]
+        outgoingPrivateCallTargetId = trimmedPartnerId
+        outgoingPrivateCallPhase = .checking
+        outgoingCallMode = .voice
+        privateCallPhaseWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, self.outgoingPrivateCallTargetId == trimmedPartnerId, self.outgoingCallMode == .voice else { return }
+            self.outgoingPrivateCallPhase = .calling
+        }
+        privateCallPhaseWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9, execute: workItem)
+        socket?.emit("voice_request", payload)
         #endif
     }
 
@@ -468,11 +503,15 @@ final class SocketService {
         }
 
         let payload: [String: Any] = ["targetId": trimmedTargetId]
-        print("DEBUG: ATTEMPTING EMIT cancel_private_call to \(trimmedTargetId)")
-        print("DEBUG: Sending cancel for \(trimmedTargetId)")
-        print("📴 Emitting cancel_private_call: \(payload)")
-        socket.emitWithAck("cancel_private_call", payload).timingOut(after: 3) { data in
-            print("DEBUG: Server acknowledged the cancel event with items: \(data)")
+        if outgoingCallMode == .voice {
+            socket.emit("cancel_voice_call", payload)
+        } else {
+            print("DEBUG: ATTEMPTING EMIT cancel_private_call to \(trimmedTargetId)")
+            print("DEBUG: Sending cancel for \(trimmedTargetId)")
+            print("📴 Emitting cancel_private_call: \(payload)")
+            socket.emitWithAck("cancel_private_call", payload).timingOut(after: 3) { data in
+                print("DEBUG: Server acknowledged the cancel event with items: \(data)")
+            }
         }
         #endif
 
@@ -484,8 +523,12 @@ final class SocketService {
     func acceptPrivateCall(callerId: String) {
         #if canImport(SocketIO)
         let payload: [String: Any] = ["callerId": callerId]
-        print("✅ Emitting private_call_accepted: \(payload)")
-        socket?.emit("private_call_accepted", payload)
+        if incomingPrivateCall?.mode == .voice {
+            socket?.emit("voice_accepted", payload)
+        } else {
+            print("✅ Emitting private_call_accepted: \(payload)")
+            socket?.emit("private_call_accepted", payload)
+        }
         #endif
         incomingPrivateCall = nil
     }
@@ -493,10 +536,29 @@ final class SocketService {
     func rejectPrivateCall(callerId: String) {
         #if canImport(SocketIO)
         let payload: [String: Any] = ["callerId": callerId]
-        print("❌ Emitting private_call_rejected: \(payload)")
-        socket?.emit("private_call_rejected", payload)
+        if incomingPrivateCall?.mode == .voice {
+            socket?.emit("voice_rejected", payload)
+        } else {
+            print("❌ Emitting private_call_rejected: \(payload)")
+            socket?.emit("private_call_rejected", payload)
+        }
         #endif
         incomingPrivateCall = nil
+    }
+
+    func endVoiceCall() {
+        #if canImport(SocketIO)
+        if let activePartnerId {
+            socket?.emit("voice_ended", ["targetId": activePartnerId])
+        }
+        #endif
+        webRTCManager.endSession()
+        activeCallMode = nil
+        if activePartnerId != nil {
+            sessionStage = .textChat
+        } else {
+            sessionStage = .idle
+        }
     }
 
     func clearPrivateCallNotice() {
@@ -523,6 +585,7 @@ final class SocketService {
     private func clearOutgoingPrivateCallState() {
         outgoingPrivateCallTargetId = nil
         outgoingPrivateCallPhase = nil
+        outgoingCallMode = nil
         privateCallPhaseWorkItem?.cancel()
         privateCallPhaseWorkItem = nil
     }
@@ -738,6 +801,8 @@ final class SocketService {
     private func cleanupCurrentPeer(reason: String) {
         print("🧹 Cleaning up current peer. reason=\(reason)")
         webRTCManager.endSession()
+        sessionStage = .idle
+        activeCallMode = nil
         activePartnerId = nil
         activeMatch = nil
         partner = nil
@@ -747,6 +812,7 @@ final class SocketService {
         partnerAvatarURL = nil
         outgoingPrivateCallTargetId = nil
         outgoingPrivateCallPhase = nil
+        outgoingCallMode = nil
         incomingPrivateCall = nil
         privateCallNotice = nil
         privateCallPhaseWorkItem?.cancel()
@@ -937,6 +1003,7 @@ final class SocketService {
             self.partner = payload
             self.activePartnerId = payload.partnerId
             self.activeMatch = payload
+            self.activeCallMode = nil
             self.partnerName = (dictionary["partnerName"] as? String)
                 ?? payload.partnerName
             self.partnerAvatarURL = (dictionary["partnerAvatar"] as? String)
@@ -954,12 +1021,33 @@ final class SocketService {
             self.privateCallNotice = nil
             self.outgoingPrivateCallTargetId = nil
             self.outgoingPrivateCallPhase = nil
+            self.outgoingCallMode = nil
             self.privateCallPhaseWorkItem?.cancel()
             self.privateCallPhaseWorkItem = nil
-            self.webRTCManager.startSession(
-                partnerId: payload.partnerId,
-                isInitiator: payload.initiator
-            )
+
+            if payload.privateCall {
+                let resolvedMode = payload.callMode ?? .video
+                self.activeCallMode = resolvedMode
+                switch resolvedMode {
+                case .video:
+                    self.sessionStage = .videoCall
+                    self.webRTCManager.startSession(
+                        partnerId: payload.partnerId,
+                        isInitiator: payload.initiator,
+                        audioOnly: false
+                    )
+                case .voice:
+                    self.sessionStage = .voiceCall
+                    self.webRTCManager.startSession(
+                        partnerId: payload.partnerId,
+                        isInitiator: payload.initiator,
+                        audioOnly: true
+                    )
+                }
+            } else {
+                self.sessionStage = .textChat
+                self.webRTCManager.endSession()
+            }
 
             let feedback = UIImpactFeedbackGenerator(style: .medium)
             feedback.impactOccurred()
@@ -1082,13 +1170,36 @@ final class SocketService {
             guard !callerId.isEmpty else { return }
             let callerName = (dictionary["callerName"] as? String) ?? "Biri"
             let avatar = (dictionary["callerAvatar"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let mode = CallRequestMode(rawValue: (dictionary["mode"] as? String) ?? "") ?? .video
             self.incomingPrivateCall = IncomingPrivateCall(
                 callerId: callerId,
                 callerName: callerName,
-                callerAvatarURL: avatar?.isEmpty == true ? nil : avatar
+                callerAvatarURL: avatar?.isEmpty == true ? nil : avatar,
+                mode: mode
             )
             self.outgoingPrivateCallTargetId = nil
             self.outgoingPrivateCallPhase = nil
+            self.outgoingCallMode = nil
+            self.privateCallPhaseWorkItem?.cancel()
+            self.privateCallPhaseWorkItem = nil
+        }
+
+        socket.on("incoming_voice_call") { [weak self] data, _ in
+            guard let self, let dictionary = data.first as? [String: Any] else { return }
+            guard self.myStatus != .offline else { return }
+            let callerId = (dictionary["callerId"] as? String) ?? ""
+            guard !callerId.isEmpty else { return }
+            let callerName = (dictionary["callerName"] as? String) ?? "Biri"
+            let avatar = (dictionary["callerAvatar"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.incomingPrivateCall = IncomingPrivateCall(
+                callerId: callerId,
+                callerName: callerName,
+                callerAvatarURL: avatar?.isEmpty == true ? nil : avatar,
+                mode: .voice
+            )
+            self.outgoingPrivateCallTargetId = nil
+            self.outgoingPrivateCallPhase = nil
+            self.outgoingCallMode = nil
             self.privateCallPhaseWorkItem?.cancel()
             self.privateCallPhaseWorkItem = nil
         }
@@ -1114,19 +1225,39 @@ final class SocketService {
             )
         }
 
+        socket.on("voice_call_cancelled") { [weak self] data, _ in
+            self?.handleIncomingPrivateCallCancelled(
+                eventName: "voice_call_cancelled",
+                items: data
+            )
+        }
+
         socket.on("call_rejected") { [weak self] _, _ in
             DispatchQueue.main.async {
                 self?.outgoingPrivateCallTargetId = nil
                 self?.outgoingPrivateCallPhase = nil
+                self?.outgoingCallMode = nil
                 self?.privateCallPhaseWorkItem?.cancel()
                 self?.privateCallPhaseWorkItem = nil
                 self?.showPrivateCallToast("Arama reddedildi")
             }
         }
 
+        socket.on("voice_rejected") { [weak self] _, _ in
+            DispatchQueue.main.async {
+                self?.outgoingPrivateCallTargetId = nil
+                self?.outgoingPrivateCallPhase = nil
+                self?.outgoingCallMode = nil
+                self?.privateCallPhaseWorkItem?.cancel()
+                self?.privateCallPhaseWorkItem = nil
+                self?.showPrivateCallToast("Sesli arama reddedildi")
+            }
+        }
+
         socket.on("target_unavailable") { [weak self] _, _ in
             self?.outgoingPrivateCallTargetId = nil
             self?.outgoingPrivateCallPhase = nil
+            self?.outgoingCallMode = nil
             self?.privateCallPhaseWorkItem?.cancel()
             self?.privateCallPhaseWorkItem = nil
             print("DEBUG: Server says target is unavailable. Check if the ID is correct and if the user is online.")
@@ -1137,6 +1268,7 @@ final class SocketService {
             DispatchQueue.main.async {
                 self?.outgoingPrivateCallTargetId = nil
                 self?.outgoingPrivateCallPhase = nil
+                self?.outgoingCallMode = nil
                 self?.privateCallPhaseWorkItem?.cancel()
                 self?.privateCallPhaseWorkItem = nil
                 self?.showPrivateCallToast("Kullanici su an mesgul. Lutfen daha sonra tekrar deneyin.")
@@ -1147,9 +1279,39 @@ final class SocketService {
             DispatchQueue.main.async {
                 self?.outgoingPrivateCallTargetId = nil
                 self?.outgoingPrivateCallPhase = nil
+                self?.outgoingCallMode = nil
                 self?.privateCallPhaseWorkItem?.cancel()
                 self?.privateCallPhaseWorkItem = nil
                 self?.showPrivateCallToast("Yetersiz Gem. Ozel arama icin 50 Gem gerekli.")
+            }
+        }
+
+        socket.on("voice_call_started") { [weak self] data, _ in
+            guard let self, let dictionary = data.first as? [String: Any] else { return }
+            let partnerId = (dictionary["partnerId"] as? String) ?? self.activePartnerId ?? ""
+            guard !partnerId.isEmpty else { return }
+            let initiator = (dictionary["initiator"] as? Bool) ?? false
+            self.activePartnerId = partnerId
+            self.activeCallMode = .voice
+            self.sessionStage = .voiceCall
+            self.outgoingPrivateCallTargetId = nil
+            self.outgoingPrivateCallPhase = nil
+            self.outgoingCallMode = nil
+            self.privateCallPhaseWorkItem?.cancel()
+            self.privateCallPhaseWorkItem = nil
+            self.webRTCManager.startSession(partnerId: partnerId, isInitiator: initiator, audioOnly: true)
+            self.showPrivateCallToast("Sesli gorusme basladi")
+        }
+
+        socket.on("voice_call_ended") { [weak self] _, _ in
+            guard let self else { return }
+            self.webRTCManager.endSession()
+            self.activeCallMode = nil
+            if self.activePartnerId != nil {
+                self.sessionStage = .textChat
+                self.showPrivateCallToast("Sesli gorusme bitti")
+            } else {
+                self.sessionStage = .idle
             }
         }
 
@@ -1232,6 +1394,16 @@ final class SocketService {
         let trustScore = (dictionary["partnerTrustScore"] as? Int)
             ?? (nestedPartner?["trustScore"] as? Int)
 
+        let partnerInterests =
+            (dictionary["partnerInterests"] as? [String])
+            ?? (nestedPartner?["interests"] as? [String])
+            ?? []
+
+        let partnerLookingFor =
+            (dictionary["partnerLookingFor"] as? [String])
+            ?? (nestedPartner?["lookingFor"] as? [String])
+            ?? []
+
         return PartnerFoundPayload(
             partnerId: partnerId,
             initiator: (dictionary["initiator"] as? Bool) ?? false,
@@ -1243,7 +1415,14 @@ final class SocketService {
             partnerName: partnerName,
             partnerAvatarURL: partnerAvatarURL,
             partnerProfilePic: partnerAvatarURL,
-            partnerAvatar: (dictionary["partnerAvatar"] as? String) ?? (nestedPartner?["avatar"] as? String)
+            partnerAvatar: (dictionary["partnerAvatar"] as? String) ?? (nestedPartner?["avatar"] as? String),
+            partnerAge: (dictionary["partnerAge"] as? Int) ?? (nestedPartner?["age"] as? Int),
+            partnerWork: (dictionary["partnerWork"] as? String) ?? (nestedPartner?["work"] as? String),
+            partnerEducation: (dictionary["partnerEducation"] as? String) ?? (nestedPartner?["education"] as? String),
+            partnerBio: (dictionary["partnerBio"] as? String) ?? (nestedPartner?["bio"] as? String),
+            partnerInterests: partnerInterests,
+            partnerLookingFor: partnerLookingFor,
+            callMode: CallRequestMode(rawValue: (dictionary["callMode"] as? String) ?? "")
         )
     }
 

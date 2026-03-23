@@ -32,6 +32,37 @@ enum PrivateCallRequestPhase: Equatable {
     case calling
 }
 
+enum CallRequestMode: String, Codable, Equatable {
+    case voice
+    case video
+
+    var incomingTitle: String {
+        switch self {
+        case .voice:
+            return "Sizi sesli ariyor..."
+        case .video:
+            return "Sizi ariyor..."
+        }
+    }
+
+    var acceptLabel: String {
+        switch self {
+        case .voice:
+            return "Sese Gec"
+        case .video:
+            return "Kabul Et"
+        }
+    }
+}
+
+enum MatchSessionStage: Equatable {
+    case idle
+    case searching
+    case textChat
+    case voiceCall
+    case videoCall
+}
+
 enum PrivateCallAlertKind: String, Identifiable {
     case targetBusy
     case insufficientGems

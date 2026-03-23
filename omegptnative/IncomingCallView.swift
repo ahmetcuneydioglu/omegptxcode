@@ -3,6 +3,7 @@ import SwiftUI
 struct IncomingCallView: View {
     let callerName: String
     let callerAvatarURL: String?
+    let mode: CallRequestMode
     let onAccept: () -> Void
     let onReject: () -> Void
 
@@ -12,7 +13,7 @@ struct IncomingCallView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 22) {
-                Text("Sizi ariyor...")
+                Text(mode.incomingTitle)
                     .font(.system(size: 18, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white.opacity(0.82))
 
@@ -36,7 +37,7 @@ struct IncomingCallView: View {
                     .buttonStyle(.plain)
 
                     Button(action: onAccept) {
-                        Label("Kabul Et", systemImage: "phone.fill")
+                        Label(mode.acceptLabel, systemImage: mode == .voice ? "waveform" : "phone.fill")
                             .font(.system(size: 16, weight: .bold, design: .rounded))
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
@@ -145,6 +146,7 @@ struct PrivateCallNoticeBanner: View {
 
 struct PrivateCallLoadingOverlay: View {
     let phase: PrivateCallRequestPhase
+    let mode: CallRequestMode
     let onCancel: () -> Void
 
     var body: some View {
@@ -198,18 +200,18 @@ struct PrivateCallLoadingOverlay: View {
     private var title: String {
         switch phase {
         case .checking:
-            return "Kontrol ediliyor..."
+            return mode == .voice ? "Sesli istek kontrol ediliyor..." : "Kontrol ediliyor..."
         case .calling:
-            return "Baglanti kuruluyor..."
+            return mode == .voice ? "Sesli istek gonderiliyor..." : "Baglanti kuruluyor..."
         }
     }
 
     private var subtitle: String {
         switch phase {
         case .checking:
-            return "Kullanici uygun mu diye kontrol ediyoruz."
+            return mode == .voice ? "Eslesen kisi su an sesli gorusmeye uygun mu bakiyoruz." : "Kullanici uygun mu diye kontrol ediyoruz."
         case .calling:
-            return "Arama istegi karsi tarafa iletiliyor."
+            return mode == .voice ? "Sesli gorusme istegi karsi tarafa iletiliyor." : "Arama istegi karsi tarafa iletiliyor."
         }
     }
 }

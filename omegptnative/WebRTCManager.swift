@@ -21,6 +21,7 @@ final class WebRTCManager: NSObject, ObservableObject {
     private var isUsingSimulatorMedia = false
     private let beautyFilterProvider = BeautyFilterProvider()
     private var beautyFrameProcessor: BeautyFrameProcessorDelegate?
+    private var isAudioOnlySession = false
     @Published var isBeautyFilterEnabled = true
     @Published private(set) var isCameraAuthorized = false
     @Published private(set) var beautySmoothness: Float = 0.0
@@ -78,12 +79,13 @@ final class WebRTCManager: NSObject, ObservableObject {
         )
     }
 
-    func startSession(partnerId: String, isInitiator: Bool) {
+    func startSession(partnerId: String, isInitiator: Bool, audioOnly: Bool = false) {
         currentPartnerId = partnerId
-        setupPeerConnection()
-        startMedia()
+        isAudioOnlySession = audioOnly
+        setupPeerConnection(audioOnly: audioOnly)
+        startMedia(audioOnly: audioOnly)
         if isInitiator {
-            createOffer()
+            createOffer(audioOnly: audioOnly)
         }
     }
 
@@ -92,6 +94,7 @@ final class WebRTCManager: NSObject, ObservableObject {
         peerConnection = nil
         currentPartnerId = nil
         remoteVideoTrack = nil
+        isAudioOnlySession = false
         isConnectionStable = false
     }
 
@@ -114,7 +117,7 @@ final class WebRTCManager: NSObject, ObservableObject {
                     return
                 }
                 if descriptionType == .offer {
-                    self?.createAnswer()
+                    self?.createAnswer(audioOnly: self?.isAudioOnlySession ?? false)
                 }
             }
             return
@@ -136,7 +139,7 @@ final class WebRTCManager: NSObject, ObservableObject {
                 print("❌ handleRemoteOffer setRemoteDescription error: \(error.localizedDescription)")
                 return
             }
-            self?.createAnswer()
+            self?.createAnswer(audioOnly: self?.isAudioOnlySession ?? false)
         }
     }
 
@@ -161,7 +164,7 @@ final class WebRTCManager: NSObject, ObservableObject {
         addIceCandidate(candidateData: payload)
     }
 
-    func setupPeerConnection() {
+    func setupPeerConnection(audioOnly: Bool = false) {
         let config = RTCConfiguration()
         config.iceServers = [
             RTCIceServer(urlStrings: ["stun:stun.l.google.com:19302"]),
@@ -192,6 +195,14 @@ final class WebRTCManager: NSObject, ObservableObject {
         _ = peerConnection?.add(audioTrack, streamIds: ["stream0"])
         #endif
 
+        if audioOnly {
+            localVideoTrack = nil
+            localVideoSource = nil
+            videoCapturer = nil
+            beautyFrameProcessor = nil
+            return
+        }
+
         if localVideoTrack == nil {
             localVideoSource = peerConnectionFactory.videoSource()
             if let localVideoSource {
@@ -205,7 +216,8 @@ final class WebRTCManager: NSObject, ObservableObject {
         }
     }
 
-    func startMedia() {
+    func startMedia(audioOnly: Bool = false) {
+        guard !audioOnly else { return }
         #if targetEnvironment(simulator)
         isUsingSimulatorMedia = true
         ensureSimulatorDummyVideoTrack()
@@ -253,11 +265,11 @@ final class WebRTCManager: NSObject, ObservableObject {
         }
     }
 
-    func createOffer() {
+    func createOffer(audioOnly: Bool = false) {
         let constraints = RTCMediaConstraints(
             mandatoryConstraints: [
                 "OfferToReceiveAudio": "true",
-                "OfferToReceiveVideo": "true"
+                "OfferToReceiveVideo": audioOnly ? "false" : "true"
             ],
             optionalConstraints: nil
         )
@@ -278,11 +290,11 @@ final class WebRTCManager: NSObject, ObservableObject {
         }
     }
 
-    func createAnswer() {
+    func createAnswer(audioOnly: Bool = false) {
         let constraints = RTCMediaConstraints(
             mandatoryConstraints: [
                 "OfferToReceiveAudio": "true",
-                "OfferToReceiveVideo": "true"
+                "OfferToReceiveVideo": audioOnly ? "false" : "true"
             ],
             optionalConstraints: nil
         )

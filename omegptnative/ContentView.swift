@@ -21,6 +21,7 @@ struct ContentView: View {
                 IncomingCallView(
                     callerName: incomingCall.callerName,
                     callerAvatarURL: incomingCall.callerAvatarURL,
+                    mode: incomingCall.mode,
                     onAccept: {
                         socketService.acceptPrivateCall(callerId: incomingCall.callerId)
                     },
@@ -46,9 +47,10 @@ struct ContentView: View {
             .allowsHitTesting(false)
 
             if let phase = socketService.outgoingPrivateCallPhase,
-               socketService.activePartnerId == nil {
+               (socketService.activePartnerId == nil || socketService.outgoingCallMode == .voice) {
                 PrivateCallLoadingOverlay(
                     phase: phase,
+                    mode: socketService.outgoingCallMode ?? .video,
                     onCancel: {
                         if let targetId = socketService.outgoingPrivateCallTargetId {
                             socketService.cancelPrivateCall(targetId: targetId)

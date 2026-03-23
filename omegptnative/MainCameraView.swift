@@ -52,22 +52,39 @@ struct MainCameraView: View {
 
         let scene: AnyView
         if let activePartnerId = socketService.activePartnerId {
-            scene = AnyView(
-                VideoChatView(
-                    partnerId: activePartnerId,
-                    partnerInfo: socketService.activeMatch,
-                    onEnd: {
-                        socketService.endCall()
-                    },
-                    onFlipCamera: {
-                        WebRTCManager.shared.switchCamera()
-                    },
-                    onNextPartner: {
-                        skipToNextPartner()
-                    }
+            switch socketService.sessionStage {
+            case .videoCall:
+                scene = AnyView(
+                    VideoChatView(
+                        partnerId: activePartnerId,
+                        partnerInfo: socketService.activeMatch,
+                        onEnd: {
+                            socketService.endCall()
+                        },
+                        onFlipCamera: {
+                            WebRTCManager.shared.switchCamera()
+                        },
+                        onNextPartner: {
+                            skipToNextPartner()
+                        }
+                    )
+                    .transition(transition)
                 )
-                .transition(transition)
-            )
+            default:
+                scene = AnyView(
+                    OnlineMatchChatView(
+                        partnerId: activePartnerId,
+                        partnerInfo: socketService.activeMatch,
+                        onNextPartner: {
+                            skipToNextPartner()
+                        },
+                        onEnd: {
+                            socketService.endCall()
+                        }
+                    )
+                    .transition(transition)
+                )
+            }
         } else {
             scene = AnyView(
                 discoveryScene(geometry: geometry)
@@ -85,36 +102,21 @@ struct MainCameraView: View {
             .animation(.easeInOut(duration: 0.3), value: socketService.activePartnerId)
             .animation(.easeInOut(duration: 0.25), value: socketService.isSearching)
             .contentShape(Rectangle())
-            .simultaneousGesture(universalSwipeGesture, including: showBeautyPanel ? .none : .all)
+            .simultaneousGesture(universalSwipeGesture, including: .all)
             .overlay(alignment: .top) {
                 OnlineNotificationBannerHost()
                     .zIndex(300)
             }
             .onAppear {
-                beautySmoothness = Double(webRTCManager.beautySmoothness)
-                beautyVibrance = Double(webRTCManager.beautyVibrance)
-                beautyExposure = Double(webRTCManager.beautyExposure)
-                beautyEye = Double(webRTCManager.beautySharpness)
-                beautyNose = Double(webRTCManager.beautyNoseContour)
-                beautyJawline = Double(webRTCManager.beautyJawlineContour)
-                beautyTeeth = Double(webRTCManager.beautyTeethWhitening)
-                teethLuminanceMin = Double(webRTCManager.beautyTeethLuminanceMin)
-                teethChromaMax = Double(webRTCManager.beautyTeethChromaMax)
-                filterIntensity = Double(webRTCManager.filterPresetIntensity)
-                selectedBeautyPreset = webRTCManager.selectedColorPreset
-                webRTCManager.setBeautyFilterEnabled(true)
-                webRTCManager.startPreviewCapture()
                 socketService.connect(dbUserId: appUserStore.currentUser?.id)
             }
             .onDisappear {
-                webRTCManager.stopPreviewCapture()
                 socketService.disconnect()
             }
     }
 
     private func applySceneStateObservers<Content: View>(to view: Content) -> some View {
-        let cameraAndBeauty = applyCameraAndBeautyObservers(to: view)
-        return applyAuthAndSocketObservers(to: cameraAndBeauty)
+        applyAuthAndSocketObservers(to: view)
     }
 
     private func applyCameraAndBeautyObservers<Content: View>(to view: Content) -> some View {
@@ -238,48 +240,38 @@ struct MainCameraView: View {
 
     private func discoveryScene(geometry: GeometryProxy) -> some View {
         ZStack {
-            LocalVideoView(videoTrack: webRTCManager.localVideoTrack)
+            cameraPlaceholderBackground
                 .ignoresSafeArea()
 
-            if !isCameraOn || !webRTCManager.isCameraAuthorized {
-                cameraPlaceholderBackground
-                    .ignoresSafeArea()
-                    .transition(.opacity)
-            }
-
-            if !showBeautyPanel {
-                VStack(spacing: 0) {
-                    topOverlay
-                        .padding(.top, 8)
-                        .padding(.horizontal, 16)
-
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-
-                leftControlColumn
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                    .padding(.leading, 12)
-                    .padding(.top, geometry.safeAreaInsets.top + 112)
-                    .zIndex(24)
-
-                bottomControls
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            VStack(spacing: 0) {
+                topOverlay
+                    .padding(.top, 8)
                     .padding(.horizontal, 16)
-                    .padding(.bottom, max(geometry.safeAreaInsets.bottom, 18))
 
-                MatchRadarView(isIntensified: isRadarIntensified)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                    .allowsHitTesting(false)
+                Spacer()
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
-            if !socketService.isSearching && !showBeautyPanel {
+            onlineDiscoveryCard
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .padding(.horizontal, 20)
+
+            bottomControls
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .padding(.horizontal, 16)
+                .padding(.bottom, max(geometry.safeAreaInsets.bottom, 18))
+
+            MatchRadarView(isIntensified: isRadarIntensified)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .allowsHitTesting(false)
+
+            if !socketService.isSearching {
                 JoinNotificationView()
                     .padding(.bottom, max(geometry.safeAreaInsets.bottom, 18) + 70)
                     .zIndex(40)
             }
 
-            if socketService.isSearching && !showBeautyPanel {
+            if socketService.isSearching {
                 SearchingOverlayView(
                     scopeBadge: searchScopeBadge,
                     canFallbackToGlobal: searchCountryCode != "all" && !fallbackTriggered,
@@ -306,44 +298,6 @@ struct MainCameraView: View {
                     .padding(.top, geometry.safeAreaInsets.top + 56)
                     .transition(.opacity.combined(with: .move(edge: .top)))
                     .zIndex(120)
-            }
-
-            if showBeautyPanel {
-                Color.black.opacity(0.22)
-                    .ignoresSafeArea()
-                    .onTapGesture {
-                        withAnimation(.easeOut(duration: 0.22)) {
-                            showBeautyPanel = false
-                        }
-                    }
-                    .zIndex(125)
-
-                VStack {
-                    Spacer(minLength: 0)
-                    BeautySettingsPanel(
-                        smoothness: $beautySmoothness,
-                        vibrance: $beautyVibrance,
-                        exposure: $beautyExposure,
-                        selectedPreset: $selectedBeautyPreset,
-                        selectedTab: $selectedBeautyTab,
-                        selectedBeautyTool: $selectedBeautyTool,
-                        intensity: selectedIntensityBinding,
-                        teethLuminanceMin: $teethLuminanceMin,
-                        teethChromaMax: $teethChromaMax,
-                        onReset: resetBeautySettings,
-                        onClose: {
-                            withAnimation(.easeOut(duration: 0.22)) {
-                                showBeautyPanel = false
-                            }
-                        }
-                    )
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, max(geometry.safeAreaInsets.bottom, 18) + 86)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .ignoresSafeArea(.keyboard, edges: .bottom)
-                .zIndex(126)
             }
         }
     }
@@ -617,6 +571,86 @@ struct MainCameraView: View {
             Image(systemName: "camera.fill")
                 .font(.system(size: 44, weight: .semibold))
                 .foregroundStyle(Color.white.opacity(0.24))
+        }
+    }
+
+    private var onlineDiscoveryCard: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Online eslesme")
+                .font(.system(size: 32, weight: .black, design: .rounded))
+                .foregroundStyle(.white)
+
+            Text("Sadece su anda aktif olan kisilerle esles. Once profil ve mesaj, sonra istersen sesli gorusme.")
+                .font(.system(size: 16, weight: .medium, design: .rounded))
+                .foregroundStyle(.white.opacity(0.78))
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 12) {
+                discoveryBullet(
+                    icon: "person.crop.square",
+                    title: "Photo-first",
+                    detail: "Eslesme geldiginde kamera degil, fotograf ve kisa profil acilir."
+                )
+                discoveryBullet(
+                    icon: "message.fill",
+                    title: "Direkt chat",
+                    detail: "Eslesme aninda yazismaya baslayabilirsiniz."
+                )
+                discoveryBullet(
+                    icon: "waveform",
+                    title: "Opsiyonel voice",
+                    detail: "Istersen sonradan ucretsiz sesli gorusme istegi gonder."
+                )
+            }
+
+            Button {
+                if socketService.isSearching {
+                    socketService.stopSearch()
+                } else {
+                    startMatching()
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: socketService.isSearching ? "xmark.circle.fill" : "sparkles")
+                        .font(.system(size: 16, weight: .bold))
+                    Text(socketService.isSearching ? "Aramayi durdur" : "Online kisi bul")
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                }
+                .foregroundStyle(.black)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(24)
+        .background(.ultraThinMaterial)
+        .background(Color.white.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 32, style: .continuous)
+                .stroke(Color.white.opacity(0.16), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.24), radius: 24, x: 0, y: 12)
+    }
+
+    private func discoveryBullet(icon: String, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 34, height: 34)
+                .background(Color.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                Text(detail)
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.72))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 

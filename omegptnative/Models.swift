@@ -149,6 +149,13 @@ struct PartnerFoundPayload: Codable {
     let partnerAvatarURL: String?
     let partnerProfilePic: String?
     let partnerAvatar: String?
+    let partnerAge: Int?
+    let partnerWork: String?
+    let partnerEducation: String?
+    let partnerBio: String?
+    let partnerInterests: [String]
+    let partnerLookingFor: [String]
+    let callMode: CallRequestMode?
 }
 
 struct BanEvent: Identifiable {
@@ -171,6 +178,7 @@ struct IncomingPrivateCall: Identifiable, Equatable {
     let callerId: String
     let callerName: String
     let callerAvatarURL: String?
+    let mode: CallRequestMode
 }
 
 struct PrivateCallNotice: Identifiable, Equatable {

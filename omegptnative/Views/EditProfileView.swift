@@ -302,30 +302,34 @@ struct EditProfileView: View {
                 .font(.system(size: 16, weight: .semibold, design: .rounded))
                 .foregroundStyle(Color(.label))
         }
-        ToolbarItem(placement: .navigationBarTrailing) {
-            HStack(spacing: 14) {
-                Button {
-                    previewSnapshot = makePreviewSnapshot()
-                } label: {
-                    Text("Preview")
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Color(.label))
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    Task { await saveAll() }
-                } label: {
-                    if isSaving {
-                        ProgressView().tint(.gray)
-                    } else {
-                        Text("Kaydet")
-                            .font(.system(size: 16, weight: .semibold, design: .rounded))
-                            .foregroundStyle(Color(.secondaryLabel))
-                    }
-                }
-                .disabled(isSaving)
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                let snapshot = makePreviewSnapshot()
+                print("🧭 [EditProfile][preview] opening preview name='\(snapshot.name)' bioLength=\(snapshot.bio.count)")
+                previewSnapshot = snapshot
+            } label: {
+                Text("Preview")
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color(.label))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                Task { await saveAll() }
+            } label: {
+                if isSaving {
+                    ProgressView().tint(.gray)
+                } else {
+                    Text("Kaydet")
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color(.secondaryLabel))
+                }
+            }
+            .disabled(isSaving)
         }
     }
 
@@ -2256,14 +2260,16 @@ private struct EditProfilePreviewView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
+        GeometryReader { proxy in
+            let contentWidth = max(proxy.size.width - 40, 0)
+
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 18) {
-                    previewHeader
-                    heroCard
+                    previewHeader(width: contentWidth)
+                    heroCard(width: contentWidth, height: heroHeight(for: proxy.size.height))
 
                     if !snapshot.bio.isEmpty {
-                        previewCard(title: "My bio") {
+                        previewCard(title: "My bio", width: contentWidth) {
                             Text(snapshot.bio)
                                 .font(.system(size: 19, weight: .regular, design: .rounded))
                                 .foregroundStyle(Color(.label))
@@ -2272,13 +2278,13 @@ private struct EditProfilePreviewView: View {
                     }
 
                     if !aboutChips.isEmpty {
-                        previewCard(title: "About me") {
+                        previewCard(title: "About me", width: contentWidth) {
                             previewChipFlow(chips: aboutChips)
                         }
                     }
 
                     if !snapshot.lookingFor.isEmpty {
-                        previewCard(title: "I'm looking for") {
+                        previewCard(title: "I'm looking for", width: contentWidth) {
                             previewChipFlow(
                                 chips: snapshot.lookingFor.map { PreviewChip(icon: "magnifyingglass", text: $0) }
                             )
@@ -2286,7 +2292,7 @@ private struct EditProfilePreviewView: View {
                     }
 
                     if !snapshot.interests.isEmpty {
-                        previewCard(title: "My interests") {
+                        previewCard(title: "My interests", width: contentWidth) {
                             VStack(alignment: .leading, spacing: 18) {
                                 highlightInterestCard
                                 previewChipFlow(
@@ -2297,74 +2303,84 @@ private struct EditProfilePreviewView: View {
                     }
 
                     if !snapshot.languages.isEmpty {
-                        previewCard(title: "Languages") {
+                        previewCard(title: "Languages", width: contentWidth) {
                             previewChipFlow(
                                 chips: snapshot.languages.map { PreviewChip(icon: "ellipsis.bubble", text: $0) }
                             )
                         }
                     }
-
-                    Spacer(minLength: 100)
                 }
-                .padding(.horizontal, 20)
                 .padding(.top, 10)
-                .padding(.bottom, 24)
+                .padding(.bottom, 20)
+                .frame(maxWidth: .infinity)
             }
+            .frame(width: proxy.size.width, alignment: .center)
             .background(pageBg.ignoresSafeArea())
-
-            Button {
-                dismiss()
-            } label: {
-                Text("Edit profile")
-                    .font(.system(size: 19, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 20)
-                    .background(Color(.label), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .safeAreaInset(edge: .bottom) {
+                previewBottomBar
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 20)
-            .padding(.bottom, 24)
-            .background(
-                LinearGradient(
-                    colors: [pageBg.opacity(0), pageBg.opacity(0.94), pageBg],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 120)
-                .allowsHitTesting(false),
-                alignment: .bottom
-            )
         }
         .background(pageBg.ignoresSafeArea())
     }
 
-    private var previewHeader: some View {
-        HStack {
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 24, weight: .medium))
-                    .foregroundStyle(Color(.label))
-                    .frame(width: 44, height: 44)
-            }
-            .buttonStyle(.plain)
+    private var previewBottomBar: some View {
+        Button {
+            dismiss()
+        } label: {
+            Text("Edit profile")
+                .font(.system(size: 19, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 20)
+                .background(Color(.label), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 20)
+        .padding(.top, 10)
+        .padding(.bottom, 12)
+        .background(
+            LinearGradient(
+                colors: [pageBg.opacity(0), pageBg.opacity(0.94), pageBg],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+    }
 
-            Spacer()
-
+    private func previewHeader(width: CGFloat) -> some View {
+        ZStack {
             Text(titleText)
                 .font(.system(size: 21, weight: .bold, design: .rounded))
                 .foregroundStyle(Color(.label))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .padding(.horizontal, 52)
 
-            Spacer()
+            HStack {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 24, weight: .medium))
+                        .foregroundStyle(Color(.label))
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
 
-            Color.clear
-                .frame(width: 44, height: 44)
+                Spacer()
+
+                Color.clear
+                    .frame(width: 44, height: 44)
+            }
         }
+        .frame(width: width)
     }
 
-    private var heroCard: some View {
+    private func heroHeight(for screenHeight: CGFloat) -> CGFloat {
+        min(max(screenHeight * 0.52, 360), 620)
+    }
+
+    private func heroCard(width: CGFloat, height: CGFloat) -> some View {
         ZStack(alignment: .bottomLeading) {
             Group {
                 if let avatarImage = snapshot.avatarImage {
@@ -2386,16 +2402,15 @@ private struct EditProfilePreviewView: View {
                     previewHeroPlaceholder
                 }
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 620)
-            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .frame(width: width, height: height)
+            .clipped()
 
             LinearGradient(
                 colors: [Color.clear, Color.black.opacity(0.08), Color.black.opacity(0.72)],
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .frame(width: width, height: height)
 
             VStack(alignment: .leading, spacing: 10) {
                 Text(titleText)
@@ -2413,6 +2428,8 @@ private struct EditProfilePreviewView: View {
             .padding(.horizontal, 22)
             .padding(.bottom, 26)
         }
+        .frame(width: width, height: height)
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .shadow(color: .black.opacity(0.08), radius: 14, x: 0, y: 6)
     }
 
@@ -2444,10 +2461,13 @@ private struct EditProfilePreviewView: View {
             Text(text)
                 .font(.system(size: 18, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white)
+                .lineLimit(1)
+                .truncationMode(.tail)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func previewCard<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+    private func previewCard<Content: View>(title: String, width: CGFloat, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             Text(title)
                 .font(.system(size: 19, weight: .bold, design: .rounded))
@@ -2456,13 +2476,13 @@ private struct EditProfilePreviewView: View {
             content()
         }
         .padding(22)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(width: width, alignment: .leading)
         .background(cardBg, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
         .shadow(color: .black.opacity(0.06), radius: 14, x: 0, y: 5)
     }
 
     private func previewChipFlow(chips: [PreviewChip]) -> some View {
-        WrapLayout(hSpacing: 10, vSpacing: 12) {
+        PreviewWrapLayout(hSpacing: 10, vSpacing: 12) {
             ForEach(chips) { chip in
                 HStack(spacing: 10) {
                     if chip.usesSymbolIcon {
@@ -2477,7 +2497,11 @@ private struct EditProfilePreviewView: View {
                     Text(chip.text)
                         .font(.system(size: 17, weight: .medium, design: .rounded))
                         .foregroundStyle(Color(.label))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(1)
                 }
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 18)
                 .padding(.vertical, 14)
                 .background(Color(.systemGray6), in: Capsule())
@@ -2492,6 +2516,8 @@ private struct EditProfilePreviewView: View {
             Text("\(firstName) loves \(firstInterest.lowercased())")
                 .font(.system(size: 18, weight: .medium, design: .rounded))
                 .foregroundStyle(Color(.label))
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Text(interestEmoji(for: firstInterest))
@@ -2533,6 +2559,75 @@ private struct PreviewChip: Identifiable {
     let icon: String
     let text: String
     var usesSymbolIcon = true
+}
+
+private struct PreviewWrapLayout: Layout {
+    var hSpacing: CGFloat = 8
+    var vSpacing: CGFloat = 10
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) -> CGSize {
+        let availableWidth = max(0, proposal.width ?? 300)
+        let rows = makeRows(width: availableWidth, subviews: subviews)
+        let totalHeight = rows.reduce(0) { $0 + $1.height } + CGFloat(max(0, rows.count - 1)) * vSpacing
+        return CGSize(width: availableWidth, height: totalHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) {
+        let rows = makeRows(width: bounds.width, subviews: subviews)
+        var y = bounds.minY
+
+        for row in rows {
+            var x = bounds.minX
+
+            for item in row.items {
+                let size = item.view.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
+                item.view.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(width: min(size.width, bounds.width), height: size.height))
+                x += min(size.width, bounds.width) + hSpacing
+            }
+
+            y += row.height + vSpacing
+        }
+    }
+
+    private struct RowItem {
+        let view: LayoutSubview
+        let size: CGSize
+    }
+
+    private struct Row {
+        let items: [RowItem]
+        let height: CGFloat
+    }
+
+    private func makeRows(width: CGFloat, subviews: Subviews) -> [Row] {
+        var rows: [Row] = []
+        var rowItems: [RowItem] = []
+        var rowWidth: CGFloat = 0
+        var rowHeight: CGFloat = 0
+
+        for view in subviews {
+            let measuredSize = view.sizeThatFits(ProposedViewSize(width: width, height: nil))
+            let itemWidth = min(measuredSize.width, width)
+            let neededWidth = rowItems.isEmpty ? itemWidth : rowWidth + hSpacing + itemWidth
+
+            if !rowItems.isEmpty && neededWidth > width {
+                rows.append(Row(items: rowItems, height: rowHeight))
+                rowItems = []
+                rowWidth = 0
+                rowHeight = 0
+            }
+
+            rowItems.append(RowItem(view: view, size: CGSize(width: itemWidth, height: measuredSize.height)))
+            rowWidth = rowItems.count == 1 ? itemWidth : rowWidth + hSpacing + itemWidth
+            rowHeight = max(rowHeight, measuredSize.height)
+        }
+
+        if !rowItems.isEmpty {
+            rows.append(Row(items: rowItems, height: rowHeight))
+        }
+
+        return rows
+    }
 }
 
 private struct EditProfileDirectHeightDetailView: View {

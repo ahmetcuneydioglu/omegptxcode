@@ -49,6 +49,64 @@ function normalizePlaceLabel(rawValue = '') {
     .slice(0, 120);
 }
 
+function calculateAgeFromBirthDate(rawBirthDate) {
+  const trimmed = String(rawBirthDate || '').trim();
+  if (!trimmed) return null;
+
+  const parts = trimmed.split('.');
+  if (parts.length !== 3) return null;
+
+  const [day, month, year] = parts.map((part) => Number(part));
+  if (!Number.isInteger(day) || !Number.isInteger(month) || !Number.isInteger(year)) return null;
+
+  const birthDate = new Date(year, month - 1, day);
+  if (Number.isNaN(birthDate.getTime())) return null;
+
+  const now = new Date();
+  let age = now.getFullYear() - birthDate.getFullYear();
+  const monthDiff = now.getMonth() - birthDate.getMonth();
+  const dayDiff = now.getDate() - birthDate.getDate();
+  if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) {
+    age -= 1;
+  }
+
+  return age >= 18 && age <= 120 ? age : null;
+}
+
+function sanitizeList(values, limit = 6) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function buildPartnerProfilePayload(user) {
+  if (!user) {
+    return {
+      partnerName: 'Stranger',
+      partnerAvatar: null,
+      partnerAge: null,
+      partnerWork: null,
+      partnerEducation: null,
+      partnerBio: null,
+      partnerInterests: [],
+      partnerLookingFor: []
+    };
+  }
+
+  return {
+    partnerName: user.name || 'Stranger',
+    partnerAvatar: user.avatar || null,
+    partnerAge: calculateAgeFromBirthDate(user.birthDate) || user.age || null,
+    partnerWork: user.work || null,
+    partnerEducation: user.education || null,
+    partnerBio: user.bio || null,
+    partnerInterests: sanitizeList(user.interests, 6),
+    partnerLookingFor: sanitizeList(user.lookingFor, 2)
+  };
+}
+
 app.use((req, res, next) => {
     if (req.header('x-forwarded-proto') !== 'https' && NODE_ENV === 'production') {
         res.redirect(`https://${req.header('host')}${req.url}`);
@@ -89,6 +147,7 @@ let globalQueue = [];
 const activeMatches = new Map();
 const userDetails = new Map();
 const pendingPrivateCalls = new Map();
+const pendingVoiceCalls = new Map();
 const matchmakingReservations = new Set();
 const connectedUsers = new Map();
 const socketToDbUser = new Map();
@@ -273,6 +332,17 @@ const clearPendingPrivateCall = (socketId) => {
   pendingPrivateCalls.delete(socketId);
   if (pendingCall.partnerSocketId) {
     pendingPrivateCalls.delete(pendingCall.partnerSocketId);
+  }
+
+  return pendingCall;
+};
+const clearPendingVoiceCall = (socketId) => {
+  const pendingCall = pendingVoiceCalls.get(socketId);
+  if (!pendingCall) return null;
+
+  pendingVoiceCalls.delete(socketId);
+  if (pendingCall.partnerSocketId) {
+    pendingVoiceCalls.delete(pendingCall.partnerSocketId);
   }
 
   return pendingCall;
@@ -639,7 +709,8 @@ io.on('connection', async (socket) => {
       io.to(targetSocketId).emit('incoming_private_call', {
         callerName: callerUser.name || 'Stranger',
         callerAvatar: callerUser.avatar || null,
-        callerId: finalCallerId
+        callerId: finalCallerId,
+        mode: 'video'
       });
     } catch (err) {
       console.error('❌ Private call request hatası:', err);
@@ -705,6 +776,8 @@ io.on('connection', async (socket) => {
       console.log(`📞 Private call accepted: ${matchId}`);
 
       let targetUser = isValidObjectId(targetDetails.dbId) ? await User.findById(targetDetails.dbId) : null;
+      const targetProfile = buildPartnerProfilePayload(targetUser);
+      const callerProfile = buildPartnerProfilePayload(callerUser);
 
       io.to(callerSocketId).emit('partner_found', {
         partnerId: socket.id,
@@ -712,10 +785,10 @@ io.on('connection', async (socket) => {
         country: normalizeCountry(targetDetails.country || 'UN'),
         partnerGender: targetDetails.myGender || 'male',
         partnerLikes: targetMatchDetails ? targetMatchDetails.likes : 0,
-        partnerName: targetUser ? targetUser.name : 'Stranger',
-        partnerAvatar: targetUser ? targetUser.avatar : null,
+        ...targetProfile,
         myNewGems: callerUser ? callerUser.gems : 0,
-        privateCall: true
+        privateCall: true,
+        callMode: 'video'
       });
 
       io.to(socket.id).emit('partner_found', {
@@ -724,10 +797,10 @@ io.on('connection', async (socket) => {
         country: normalizeCountry(callerDetails.country || 'UN'),
         partnerGender: callerDetails.myGender || 'male',
         partnerLikes: callerMatchDetails ? callerMatchDetails.likes : 0,
-        partnerName: callerUser ? callerUser.name : 'Stranger',
-        partnerAvatar: callerUser ? callerUser.avatar : null,
+        ...callerProfile,
         myNewGems: targetUser ? targetUser.gems : 0,
-        privateCall: true
+        privateCall: true,
+        callMode: 'video'
       });
     } catch (err) {
       console.error('❌ Private call acceptance hatası:', err);
@@ -765,6 +838,100 @@ io.on('connection', async (socket) => {
 
     io.to(targetSocketId).emit('private_call_cancelled', {
       callerId: finalCallerId
+    });
+  });
+
+  socket.on('voice_request', async ({ targetId } = {}) => {
+    if (!consumeSocketEvent(socket, 'voice_request', { limit: 8, windowMs: 60_000 })) {
+      return socket.emit('error_message', { type: 'RATE_LIMIT', message: 'Cok fazla sesli gorusme istegi gonderildi.' });
+    }
+
+    const targetSocketId = typeof targetId === 'string' ? targetId.trim() : '';
+    if (!targetSocketId) {
+      return socket.emit('target_unavailable');
+    }
+
+    const verifiedPartnerId = getVerifiedPartnerId(socket, targetSocketId);
+    if (!verifiedPartnerId || verifiedPartnerId !== targetSocketId) {
+      return socket.emit('target_unavailable');
+    }
+
+    if (pendingVoiceCalls.has(socket.id) || pendingVoiceCalls.has(targetSocketId)) {
+      return socket.emit('target_unavailable');
+    }
+
+    const callerDbId = getDbIdBySocketId(socket.id);
+    const callerUser = isValidObjectId(callerDbId) ? await User.findById(callerDbId) : null;
+
+    pendingVoiceCalls.set(socket.id, {
+      type: 'outgoing',
+      partnerSocketId: targetSocketId
+    });
+    pendingVoiceCalls.set(targetSocketId, {
+      type: 'incoming',
+      partnerSocketId: socket.id
+    });
+
+    io.to(targetSocketId).emit('incoming_voice_call', {
+      callerId: socket.id,
+      callerName: callerUser?.name || 'Biri',
+      callerAvatar: callerUser?.avatar || null
+    });
+  });
+
+  socket.on('voice_accepted', ({ callerId } = {}) => {
+    const pendingCall = pendingVoiceCalls.get(socket.id);
+    if (!pendingCall || pendingCall.type !== 'incoming') return;
+
+    const callerSocketId = pendingCall.partnerSocketId;
+    if (callerId && String(callerId) !== String(callerSocketId)) return;
+    if (getVerifiedPartnerId(socket, callerSocketId) !== callerSocketId) {
+      clearPendingVoiceCall(socket.id);
+      return io.to(callerSocketId).emit('target_unavailable');
+    }
+
+    clearPendingVoiceCall(socket.id);
+
+    io.to(callerSocketId).emit('voice_call_started', {
+      partnerId: socket.id,
+      initiator: true
+    });
+    io.to(socket.id).emit('voice_call_started', {
+      partnerId: callerSocketId,
+      initiator: false
+    });
+  });
+
+  socket.on('voice_rejected', ({ callerId } = {}) => {
+    const pendingCall = pendingVoiceCalls.get(socket.id);
+    if (!pendingCall || pendingCall.type !== 'incoming') return;
+
+    const callerSocketId = pendingCall.partnerSocketId;
+    if (callerId && String(callerId) !== String(callerSocketId)) return;
+
+    clearPendingVoiceCall(socket.id);
+    io.to(callerSocketId).emit('voice_rejected');
+  });
+
+  socket.on('cancel_voice_call', ({ targetId } = {}) => {
+    const pendingCall = pendingVoiceCalls.get(socket.id);
+    if (!pendingCall) return;
+
+    const partnerSocketId = pendingCall.partnerSocketId;
+    if (targetId && String(targetId) !== String(partnerSocketId)) return;
+
+    clearPendingVoiceCall(socket.id);
+    io.to(partnerSocketId).emit('voice_call_cancelled', {
+      callerId: socket.id
+    });
+  });
+
+  socket.on('voice_ended', ({ targetId } = {}) => {
+    const partnerSocketId = getVerifiedPartnerId(socket, targetId);
+    if (!partnerSocketId) return;
+
+    io.to(partnerSocketId).emit('voice_call_ended', {
+      partnerId: socket.id
     });
   });
 
@@ -999,6 +1166,8 @@ io.on('connection', async (socket) => {
 
             let myDbUser = isValidId(u.dbId) ? await User.findById(u.dbId) : null;
             let pDbUser = isValidId(partner.dbId) ? await User.findById(partner.dbId) : null;
+            const myProfile = buildPartnerProfilePayload(myDbUser);
+            const partnerProfile = buildPartnerProfilePayload(pDbUser);
 
             io.to(socket.id).emit('partner_found', { 
                 partnerId: partner.id, 
@@ -1006,8 +1175,7 @@ io.on('connection', async (socket) => {
                 country: partner.countryCode, 
                 partnerGender: partner.myGender, 
                 partnerLikes: pDetails ? pDetails.likes : 0,
-                partnerName: pDbUser ? pDbUser.name : "Stranger",
-                partnerAvatar: pDbUser ? pDbUser.avatar : null,
+                ...partnerProfile,
                 myNewGems: myDbUser ? myDbUser.gems : 0
             });
 
@@ -1017,8 +1185,7 @@ io.on('connection', async (socket) => {
                 country: myCountryCode, 
                 partnerGender: myGender, 
                 partnerLikes: myDetails ? myDetails.likes : 0,
-                partnerName: myDbUser ? myDbUser.name : "Stranger",
-                partnerAvatar: myDbUser ? myDbUser.avatar : null,
+                ...myProfile,
                 myNewGems: pDbUser ? pDbUser.gems : 0 
             });
 
@@ -1062,6 +1229,13 @@ io.on('connection', async (socket) => {
   });
 
   socket.on('next_user', async () => {
+    const pendingVoiceCall = clearPendingVoiceCall(socket.id);
+    if (pendingVoiceCall?.partnerSocketId) {
+      io.to(pendingVoiceCall.partnerSocketId).emit('voice_call_cancelled', {
+        callerId: socket.id
+      });
+    }
+
     const partnerId = activeMatches.get(socket.id);
     const matchId = getMatchId(socket.id, partnerId);
     const match = global.liveMatches.get(matchId);
@@ -1093,6 +1267,12 @@ io.on('connection', async (socket) => {
 
   socket.on('stop_search', async () => {
     console.log(`⏹️ [${socket.id.slice(0,6)}] Aramayı tamamen durdurdu.`);
+    const pendingVoiceCall = clearPendingVoiceCall(socket.id);
+    if (pendingVoiceCall?.partnerSocketId) {
+      io.to(pendingVoiceCall.partnerSocketId).emit('voice_call_cancelled', {
+        callerId: socket.id
+      });
+    }
     matchmakingReservations.delete(socket.id);
     globalQueue = globalQueue.filter(u => u.id !== socket.id);
     const u = userDetails.get(socket.id);
@@ -1153,6 +1333,12 @@ io.on('connection', async (socket) => {
     const pendingCall = clearPendingPrivateCall(socket.id);
     if (pendingCall?.partnerSocketId) {
       io.to(pendingCall.partnerSocketId).emit('target_unavailable');
+    }
+    const pendingVoiceCall = clearPendingVoiceCall(socket.id);
+    if (pendingVoiceCall?.partnerSocketId) {
+      io.to(pendingVoiceCall.partnerSocketId).emit('voice_call_cancelled', {
+        callerId: socket.id
+      });
     }
     const disconnectedDbId = getDbIdBySocketId(socket.id);
     const partnerId = activeMatches.get(socket.id);
