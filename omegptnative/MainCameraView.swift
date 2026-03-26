@@ -10,8 +10,11 @@ struct MainCameraView: View {
     @State private var showGenderSheet = false
     @State private var showCountrySheet = false
     @State private var showLoginRequiredSheet = false
+    @State private var loginRequiredContext: LoginRequiredContext = .filters
     @State private var showProfileSheet = false
     @State private var showHistorySheet = false
+    @State private var hasShownGuestUpgradePrompt = false
+    @State private var lastActivePartnerId: String?
     @State private var currentGender = "male"
     @State private var selectedGender: GenderFilterOption = .all
     @State private var selectedCountry = "Global"
@@ -147,6 +150,8 @@ struct MainCameraView: View {
     private func applyAuthAndSocketObservers<Content: View>(to view: Content) -> some View {
         view
             .onChange(of: appUserStore.isLoggedIn) { _, _ in
+                hasShownGuestUpgradePrompt = false
+                socketService.resetGuestMatchProgress()
                 socketService.disconnect()
                 socketService.connect(dbUserId: appUserStore.currentUser?.id)
             }
@@ -159,18 +164,33 @@ struct MainCameraView: View {
                 if newPartnerId != nil {
                     isRadarIntensified = false
                 }
+
+                if lastActivePartnerId != nil,
+                   newPartnerId == nil,
+                   !appUserStore.isLoggedIn,
+                   socketService.guestMatchCount > 0,
+                   !hasShownGuestUpgradePrompt {
+                    presentLoginRequiredSheet(.guestUpgrade)
+                    hasShownGuestUpgradePrompt = true
+                }
+
+                lastActivePartnerId = newPartnerId
             }
             .onChange(of: socketService.storePresentationRequestID) { _, _ in
                 guard socketService.storePresentationRequestID != nil else { return }
-                gemToastMessage = socketService.storePresentationMessage
-                withAnimation(.easeOut(duration: 0.22)) {
-                    showGemToast = true
-                    isStorePresented = true
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
-                    withAnimation(.easeIn(duration: 0.2)) {
-                        showGemToast = false
+                if appUserStore.isLoggedIn {
+                    gemToastMessage = socketService.storePresentationMessage
+                    withAnimation(.easeOut(duration: 0.22)) {
+                        showGemToast = true
+                        isStorePresented = true
                     }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+                        withAnimation(.easeIn(duration: 0.2)) {
+                            showGemToast = false
+                        }
+                    }
+                } else {
+                    presentLoginRequiredSheet(.store)
                 }
                 socketService.consumeStorePresentationRequest()
             }
@@ -199,7 +219,7 @@ struct MainCameraView: View {
                 .presentationBackground(.ultraThinMaterial)
             }
             .sheet(isPresented: $showLoginRequiredSheet) {
-                LoginRequiredSheet(authManager: appUserStore)
+                LoginRequiredSheet(authManager: appUserStore, context: loginRequiredContext)
                     .presentationDetents([.medium])
                     .presentationDragIndicator(.visible)
                     .presentationBackground(.ultraThinMaterial)
@@ -376,6 +396,8 @@ struct MainCameraView: View {
             return
         }
 
+        guard !shouldRequireLoginBeforeNextGuestMatch() else { return }
+
         let preferredGender = selectedGender.socketValue
         let preferredCountry = selectedCountry == "Global"
             ? "all"
@@ -399,6 +421,11 @@ struct MainCameraView: View {
               !socketService.isAwaitingSearchStart,
               !(socketService.isSearching && socketService.activePartnerId == nil) else {
             print("⏳ skipToNextPartner ignored: matchmaking already pending/searching")
+            return
+        }
+
+        if shouldRequireLoginBeforeNextGuestMatch() {
+            socketService.endCall()
             return
         }
 
@@ -669,6 +696,10 @@ struct MainCameraView: View {
 
             HStack(spacing: 8) {
                 Button {
+                    guard appUserStore.isLoggedIn else {
+                        presentLoginRequiredSheet(.history)
+                        return
+                    }
                     showHistorySheet = true
                 } label: {
                     Image(systemName: "clock.arrow.circlepath")
@@ -688,6 +719,10 @@ struct MainCameraView: View {
 
                 Button {
                     print("DEBUG: Gem icon tapped")
+                    guard appUserStore.isLoggedIn else {
+                        presentLoginRequiredSheet(.store)
+                        return
+                    }
                     isStorePresented = true
                 } label: {
                     HStack(spacing: 6) {
@@ -714,50 +749,58 @@ struct MainCameraView: View {
                     if appUserStore.isLoggedIn {
                         showProfileSheet = true
                     } else {
-                        showLoginRequiredSheet = true
+                        presentLoginRequiredSheet(.profile)
                     }
                 } label: {
-                    Group {
-                        if appUserStore.isLoggedIn,
-                           let avatar = appUserStore.currentUser?.avatar,
-                           let avatarURL = URL(string: avatar) {
-                            AsyncImage(url: avatarURL) { phase in
-                                switch phase {
-                                case .success(let image):
-                                    image
-                                        .resizable()
-                                        .scaledToFill()
-                                default:
-                                    Image(systemName: "person.crop.circle.fill")
-                                        .resizable()
-                                        .scaledToFit()
-                                        .padding(7)
-                                        .foregroundStyle(
-                                            LinearGradient(
-                                                colors: [Color.white, Color.gray.opacity(0.72)],
-                                                startPoint: .top,
-                                                endPoint: .bottom
+                    HStack(spacing: 8) {
+                        Group {
+                            if appUserStore.isLoggedIn,
+                               let avatar = appUserStore.currentUser?.avatar,
+                               let avatarURL = URL(string: avatar) {
+                                AsyncImage(url: avatarURL) { phase in
+                                    switch phase {
+                                    case .success(let image):
+                                        image
+                                            .resizable()
+                                            .scaledToFill()
+                                    default:
+                                        Image(systemName: "person.crop.circle.fill")
+                                            .resizable()
+                                            .scaledToFit()
+                                            .padding(7)
+                                            .foregroundStyle(
+                                                LinearGradient(
+                                                    colors: [Color.white, Color.gray.opacity(0.72)],
+                                                    startPoint: .top,
+                                                    endPoint: .bottom
+                                                )
                                             )
-                                        )
+                                    }
                                 }
-                            }
-                        } else {
-                            Image(systemName: "person.crop.circle.fill")
-                                .resizable()
-                                .scaledToFit()
-                                .padding(7)
-                                .foregroundStyle(
-                                    LinearGradient(
-                                        colors: [Color.white, Color.gray.opacity(0.72)],
-                                        startPoint: .top,
-                                        endPoint: .bottom
+                            } else {
+                                Image(systemName: "person.crop.circle.fill")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .padding(7)
+                                    .foregroundStyle(
+                                        LinearGradient(
+                                            colors: [Color.white, Color.gray.opacity(0.72)],
+                                            startPoint: .top,
+                                            endPoint: .bottom
+                                        )
                                     )
-                                )
+                            }
+                        }
+                        .frame(width: 32, height: 32)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(Color.white.opacity(0.45), lineWidth: 0.7))
+
+                        if !appUserStore.isLoggedIn {
+                            Text("Misafir")
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.9))
                         }
                     }
-                    .frame(width: 32, height: 32)
-                    .clipShape(Circle())
-                    .overlay(Circle().stroke(Color.white.opacity(0.45), lineWidth: 0.7))
                 }
                 .buttonStyle(.plain)
             }
@@ -864,6 +907,10 @@ struct MainCameraView: View {
 
     private var genderSelectionButton: some View {
         Button {
+            guard appUserStore.isLoggedIn else {
+                presentLoginRequiredSheet(.filters)
+                return
+            }
             showGenderSheet = true
         } label: {
             HStack(spacing: 10) {
@@ -907,6 +954,10 @@ struct MainCameraView: View {
 
     private var countrySelectionButton: some View {
         Button {
+            guard appUserStore.isLoggedIn else {
+                presentLoginRequiredSheet(.filters)
+                return
+            }
             showCountrySheet = true
         } label: {
             HStack(spacing: 10) {
@@ -950,5 +1001,17 @@ struct MainCameraView: View {
             )
         }
         .buttonStyle(.plain)
+    }
+
+    private func shouldRequireLoginBeforeNextGuestMatch() -> Bool {
+        guard !appUserStore.isLoggedIn, socketService.guestMatchCount > 0 else { return false }
+        presentLoginRequiredSheet(.guestUpgrade)
+        hasShownGuestUpgradePrompt = true
+        return true
+    }
+
+    private func presentLoginRequiredSheet(_ context: LoginRequiredContext) {
+        loginRequiredContext = context
+        showLoginRequiredSheet = true
     }
 }

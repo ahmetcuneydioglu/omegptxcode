@@ -81,10 +81,14 @@ function sanitizeList(values, limit = 6) {
     .slice(0, limit);
 }
 
+function getSocketRateLimit(socket, authenticatedLimit, guestLimit) {
+  return socket.data.auth?.userId ? authenticatedLimit : guestLimit;
+}
+
 function buildPartnerProfilePayload(user) {
   if (!user) {
     return {
-      partnerName: 'Stranger',
+      partnerName: 'Misafir',
       partnerAvatar: null,
       partnerAge: null,
       partnerWork: null,
@@ -96,7 +100,7 @@ function buildPartnerProfilePayload(user) {
   }
 
   return {
-    partnerName: user.name || 'Stranger',
+    partnerName: user.name || 'Misafir',
     partnerAvatar: user.avatar || null,
     partnerAge: calculateAgeFromBirthDate(user.birthDate) || user.age || null,
     partnerWork: user.work || null,
@@ -842,7 +846,10 @@ io.on('connection', async (socket) => {
   });
 
   socket.on('voice_request', async ({ targetId } = {}) => {
-    if (!consumeSocketEvent(socket, 'voice_request', { limit: 8, windowMs: 60_000 })) {
+    if (!consumeSocketEvent(socket, 'voice_request', {
+      limit: getSocketRateLimit(socket, 8, 4),
+      windowMs: 60_000
+    })) {
       return socket.emit('error_message', { type: 'RATE_LIMIT', message: 'Cok fazla sesli gorusme istegi gonderildi.' });
     }
 
@@ -874,7 +881,7 @@ io.on('connection', async (socket) => {
 
     io.to(targetSocketId).emit('incoming_voice_call', {
       callerId: socket.id,
-      callerName: callerUser?.name || 'Biri',
+      callerName: callerUser?.name || 'Misafir',
       callerAvatar: callerUser?.avatar || null
     });
   });
@@ -958,7 +965,10 @@ io.on('connection', async (socket) => {
         }
       };
 
-      if (!consumeSocketEvent(socket, 'find_partner', { limit: 12, windowMs: 60_000 })) {
+      if (!consumeSocketEvent(socket, 'find_partner', {
+        limit: getSocketRateLimit(socket, 12, 6),
+        windowMs: 60_000
+      })) {
         respond({ ok: false, code: 'RATE_LIMIT', message: 'Çok sık eşleşme aranıyor.' });
         return socket.emit('error_message', { type: 'RATE_LIMIT', message: 'Çok sık eşleşme aranıyor.' });
       }
@@ -1295,7 +1305,10 @@ io.on('connection', async (socket) => {
   });
 
   socket.on('chat_message', async (data) => {
-    if (!consumeSocketEvent(socket, 'chat_message', { limit: 30, windowMs: 60_000 })) {
+    if (!consumeSocketEvent(socket, 'chat_message', {
+      limit: getSocketRateLimit(socket, 30, 15),
+      windowMs: 60_000
+    })) {
         return socket.emit('error_message', { type: 'RATE_LIMIT', message: 'Çok fazla mesaj gönderildi.' });
     }
     const { to, text } = data;
@@ -1308,19 +1321,26 @@ io.on('connection', async (socket) => {
     }
 
     try {
-        const newMessage = new Message({
-            senderId: socket.id,
-            receiverId: partnerId,
-            text: sanitizedText,
-            timestamp: new Date()
-        });
-        await newMessage.save();
+        const senderDetails = userDetails.get(socket.id);
+        const partnerDetails = userDetails.get(partnerId);
+        const shouldPersistMessage = Boolean(senderDetails?.isRegistered && partnerDetails?.isRegistered);
+        const timestamp = new Date();
+
+        if (shouldPersistMessage) {
+            const newMessage = new Message({
+                senderId: socket.id,
+                receiverId: partnerId,
+                text: sanitizedText,
+                timestamp
+            });
+            await newMessage.save();
+        }
 
         console.log(`💬 Mesaj iletiliyor: [${socket.id}] -> [${partnerId}]`);
         io.to(partnerId).emit('chat_message', { 
             senderId: socket.id, 
             text: sanitizedText, 
-            timestamp: newMessage.timestamp 
+            timestamp
         });
     } catch (err) {
         console.error("❌ Mesaj kaydedilirken hata oluştu:", err);
@@ -1373,14 +1393,13 @@ io.on('connection', async (socket) => {
     if (me && partner && increaseCounter && me.isRegistered && partner.dbId) {
         await User.findByIdAndUpdate(partner.dbId, { $inc: { likes: 1 } });
         partner.likes += 1;
+        updateTrustScore(partner.dbId, 2);
     }
     io.to(targetId).emit('receive_like', { 
-        newLikes: partner.likes, 
+        newLikes: partner?.likes || 0, 
         senderSessionLikes: currentSessionLikes,
         isForMe: true 
     });
-
-    updateTrustScore(partner.dbId, 2);
   });
 
   socket.on('report_user', async ({ reportedId, screenshot }) => {

@@ -81,6 +81,7 @@ final class SocketService {
     private(set) var userOnlineStates: [String: UserStatus] = [:]
     private(set) var myStatus: UserStatus = .offline
     private(set) var isAwaitingSearchStart = false
+    private(set) var guestMatchCount = 0
     private var currentSearchPayload: MatchSearchPayload?
     private var findPartnerUnlockWorkItem: DispatchWorkItem?
     private var autoRematchWorkItem: DispatchWorkItem?
@@ -109,11 +110,6 @@ final class SocketService {
         print("🔌 Socket connect requested. authenticated=\(token?.isEmpty == false)")
         disconnect()
 
-        guard let token, !token.isEmpty else {
-            print("⚠️ Socket connect skipped because access token is missing.")
-            return
-        }
-
         guard let url = URL(string: "https://videochat-1qxi.onrender.com") else { return }
 
         let config: SocketIOClientConfiguration = [
@@ -130,7 +126,11 @@ final class SocketService {
         self.socket = socket
 
         registerHandlers(for: socket)
-        socket.connect(withPayload: ["token": token])
+        if let token, !token.isEmpty {
+            socket.connect(withPayload: ["token": token])
+        } else {
+            socket.connect()
+        }
         #endif
     }
 
@@ -319,7 +319,7 @@ final class SocketService {
         let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        let senderName = appUserStore.currentUser?.name ?? "Guest"
+        let senderName = appUserStore.currentUser?.name ?? "Misafir"
         let profilePic = appUserStore.currentUser?.avatar ?? ""
         let payload: [String: Any] = [
             "to": targetId,
@@ -441,8 +441,16 @@ final class SocketService {
         storePresentationRequestID = nil
     }
 
+    func resetGuestMatchProgress() {
+        guestMatchCount = 0
+    }
+
     func requestPrivateCall(targetUserId: String) {
         #if canImport(SocketIO)
+        guard appUserStore.isLoggedIn else {
+            appState.showTimedToast("Ozel arama icin giris yapman gerekiyor.")
+            return
+        }
         guard !targetUserId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let payload: [String: Any] = [
             "targetUserId": targetUserId,
@@ -1025,6 +1033,10 @@ final class SocketService {
             self.outgoingCallMode = nil
             self.privateCallPhaseWorkItem?.cancel()
             self.privateCallPhaseWorkItem = nil
+
+            if !self.appUserStore.isLoggedIn {
+                self.guestMatchCount += 1
+            }
 
             if payload.privateCall {
                 let resolvedMode = payload.callMode ?? .video

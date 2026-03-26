@@ -1,7 +1,46 @@
 import SwiftUI
 
+enum LoginRequiredContext {
+    case filters
+    case history
+    case store
+    case profile
+    case guestUpgrade
+
+    var title: String {
+        switch self {
+        case .filters:
+            return "Giris Gerekli"
+        case .history:
+            return "Gecmis Icin Giris Yap"
+        case .store:
+            return "Magaza Icin Giris Yap"
+        case .profile:
+            return "Profil Icin Giris Yap"
+        case .guestUpgrade:
+            return "Devam Etmek Icin Giris Yap"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .filters:
+            return "Cinsiyet ve ulke filtrelerini kullanmak icin Google ile giris yapin."
+        case .history:
+            return "Gecmis, takip ve ozel arama gibi kalici sosyal ozellikler icin giris yapin."
+        case .store:
+            return "Gem yuklemek ve magaza avantajlarini kullanmak icin Google ile giris yapin."
+        case .profile:
+            return "Profilini kaydetmek, duzenlemek ve sosyal ozellikleri kullanmak icin giris yapin."
+        case .guestUpgrade:
+            return "Ilk eslesmeni kullandin. Yeni bir eslesmeye gecmek ve profil ozelliklerini acmak icin giris yapin."
+        }
+    }
+}
+
 struct LoginRequiredSheet: View {
     var authManager: AppUserStore
+    var context: LoginRequiredContext = .filters
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -10,11 +49,11 @@ struct LoginRequiredSheet: View {
                 .font(.system(size: 36, weight: .bold))
                 .foregroundStyle(.white.opacity(0.92))
 
-            Text("Giris Gerekli")
+            Text(context.title)
                 .font(.system(size: 24, weight: .bold))
                 .foregroundStyle(.white)
 
-            Text("Cinsiyet ve ulke filtrelerini kullanmak icin Google ile giris yapin.")
+            Text(context.message)
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(.white.opacity(0.78))
                 .multilineTextAlignment(.center)
