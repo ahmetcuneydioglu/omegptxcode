@@ -336,7 +336,8 @@ final class SocketService {
                 senderName: senderName,
                 senderProfilePic: profilePic.isEmpty ? nil : profilePic,
                 text: trimmed,
-                isFromMe: true
+                isFromMe: true,
+                timestamp: Date()
             )
         )
         #endif
@@ -1090,7 +1091,7 @@ final class SocketService {
             let text = (dictionary["text"] as? String) ?? ""
             let senderName = dictionary["senderName"] as? String
             let profilePic = dictionary["profilePic"] as? String
-            let _ = dictionary["timestamp"] as? String
+            let timestamp = self.parseMessageTimestamp(dictionary["timestamp"])
             guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             print("📥 Received message: \(text)")
             self.appendMessage(
@@ -1099,7 +1100,8 @@ final class SocketService {
                     senderName: senderName,
                     senderProfilePic: profilePic,
                     text: text,
-                    isFromMe: false
+                    isFromMe: false,
+                    timestamp: timestamp
                 )
             )
             if senderId != (socket.sid ?? "") {
@@ -1430,6 +1432,32 @@ final class SocketService {
         DispatchQueue.main.async {
             self.messages.append(message)
         }
+    }
+
+    private func parseMessageTimestamp(_ rawValue: Any?) -> Date {
+        if let unix = rawValue as? TimeInterval {
+            return Date(timeIntervalSince1970: unix > 10_000_000_000 ? unix / 1_000 : unix)
+        }
+
+        if let text = rawValue as? String {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let unix = TimeInterval(trimmed) {
+                return Date(timeIntervalSince1970: unix > 10_000_000_000 ? unix / 1_000 : unix)
+            }
+
+            let iso8601WithFractionalSeconds = ISO8601DateFormatter()
+            iso8601WithFractionalSeconds.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let parsed = iso8601WithFractionalSeconds.date(from: trimmed) {
+                return parsed
+            }
+
+            let iso8601 = ISO8601DateFormatter()
+            if let parsed = iso8601.date(from: trimmed) {
+                return parsed
+            }
+        }
+
+        return Date()
     }
 
     private func saveCurrentPartnerToRecentHistory() {

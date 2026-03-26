@@ -171,6 +171,23 @@ struct ChatMessage: Identifiable, Equatable {
     let senderProfilePic: String?
     let text: String
     let isFromMe: Bool
+    let timestamp: Date
+
+    init(
+        senderId: String,
+        senderName: String?,
+        senderProfilePic: String?,
+        text: String,
+        isFromMe: Bool,
+        timestamp: Date = Date()
+    ) {
+        self.senderId = senderId
+        self.senderName = senderName
+        self.senderProfilePic = senderProfilePic
+        self.text = text
+        self.isFromMe = isFromMe
+        self.timestamp = timestamp
+    }
 }
 
 struct IncomingPrivateCall: Identifiable, Equatable {
