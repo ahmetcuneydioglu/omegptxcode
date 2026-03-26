@@ -15,6 +15,7 @@ struct MainCameraView: View {
     @State private var showHistorySheet = false
     @State private var hasShownGuestUpgradePrompt = false
     @State private var lastActivePartnerId: String?
+    @State private var animateGuestProfileBadge = false
     @State private var currentGender = "male"
     @State private var selectedGender: GenderFilterOption = .all
     @State private var selectedCountry = "Global"
@@ -168,7 +169,7 @@ struct MainCameraView: View {
                 if lastActivePartnerId != nil,
                    newPartnerId == nil,
                    !appUserStore.isLoggedIn,
-                   socketService.guestMatchCount > 0,
+                   socketService.guestMatchCount >= 5,
                    !hasShownGuestUpgradePrompt {
                     presentLoginRequiredSheet(.guestUpgrade)
                     hasShownGuestUpgradePrompt = true
@@ -752,55 +753,37 @@ struct MainCameraView: View {
                         presentLoginRequiredSheet(.profile)
                     }
                 } label: {
-                    HStack(spacing: 8) {
-                        Group {
-                            if appUserStore.isLoggedIn,
-                               let avatar = appUserStore.currentUser?.avatar,
-                               let avatarURL = URL(string: avatar) {
-                                AsyncImage(url: avatarURL) { phase in
-                                    switch phase {
-                                    case .success(let image):
-                                        image
-                                            .resizable()
-                                            .scaledToFill()
-                                    default:
-                                        Image(systemName: "person.crop.circle.fill")
-                                            .resizable()
-                                            .scaledToFit()
-                                            .padding(7)
-                                            .foregroundStyle(
-                                                LinearGradient(
-                                                    colors: [Color.white, Color.gray.opacity(0.72)],
-                                                    startPoint: .top,
-                                                    endPoint: .bottom
-                                                )
+                    Group {
+                        if appUserStore.isLoggedIn,
+                           let avatar = appUserStore.currentUser?.avatar,
+                           let avatarURL = URL(string: avatar) {
+                            AsyncImage(url: avatarURL) { phase in
+                                switch phase {
+                                case .success(let image):
+                                    image
+                                        .resizable()
+                                        .scaledToFill()
+                                default:
+                                    Image(systemName: "person.crop.circle.fill")
+                                        .resizable()
+                                        .scaledToFit()
+                                        .padding(7)
+                                        .foregroundStyle(
+                                            LinearGradient(
+                                                colors: [Color.white, Color.gray.opacity(0.72)],
+                                                startPoint: .top,
+                                                endPoint: .bottom
                                             )
-                                    }
-                                }
-                            } else {
-                                Image(systemName: "person.crop.circle.fill")
-                                    .resizable()
-                                    .scaledToFit()
-                                    .padding(7)
-                                    .foregroundStyle(
-                                        LinearGradient(
-                                            colors: [Color.white, Color.gray.opacity(0.72)],
-                                            startPoint: .top,
-                                            endPoint: .bottom
                                         )
-                                    )
+                                }
                             }
-                        }
-                        .frame(width: 32, height: 32)
-                        .clipShape(Circle())
-                        .overlay(Circle().stroke(Color.white.opacity(0.45), lineWidth: 0.7))
-
-                        if !appUserStore.isLoggedIn {
-                            Text("Misafir")
-                                .font(.system(size: 12, weight: .bold, design: .rounded))
-                                .foregroundStyle(.white.opacity(0.9))
+                        } else {
+                            guestProfileAvatar
                         }
                     }
+                    .frame(width: 32, height: 32)
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(Color.white.opacity(0.45), lineWidth: 0.7))
                 }
                 .buttonStyle(.plain)
             }
@@ -1004,7 +987,7 @@ struct MainCameraView: View {
     }
 
     private func shouldRequireLoginBeforeNextGuestMatch() -> Bool {
-        guard !appUserStore.isLoggedIn, socketService.guestMatchCount > 0 else { return false }
+        guard !appUserStore.isLoggedIn, socketService.guestMatchCount >= 5 else { return false }
         presentLoginRequiredSheet(.guestUpgrade)
         hasShownGuestUpgradePrompt = true
         return true
@@ -1013,5 +996,44 @@ struct MainCameraView: View {
     private func presentLoginRequiredSheet(_ context: LoginRequiredContext) {
         loginRequiredContext = context
         showLoginRequiredSheet = true
+    }
+
+    private var guestProfileAvatar: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.15, green: 0.22, blue: 0.36),
+                            Color(red: 0.27, green: 0.12, blue: 0.24)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            Circle()
+                .fill(Color.white.opacity(0.08))
+                .scaleEffect(animateGuestProfileBadge ? 1.1 : 0.8)
+                .blur(radius: 2)
+
+            HStack(spacing: -3) {
+                Image(systemName: "figure.stand.dress.line.vertical.figure")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Color(red: 1.0, green: 0.55, blue: 0.67))
+                    .offset(y: animateGuestProfileBadge ? -0.8 : 0.8)
+
+                Image(systemName: "figure.strengthtraining.traditional")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Color(red: 0.43, green: 0.78, blue: 1.0))
+                    .offset(y: animateGuestProfileBadge ? 0.8 : -0.8)
+            }
+        }
+        .onAppear {
+            guard !animateGuestProfileBadge else { return }
+            withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
+                animateGuestProfileBadge = true
+            }
+        }
     }
 }

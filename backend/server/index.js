@@ -94,8 +94,10 @@ function buildPartnerProfilePayload(user) {
       partnerWork: null,
       partnerEducation: null,
       partnerBio: null,
+      partnerPhotos: [],
       partnerInterests: [],
-      partnerLookingFor: []
+      partnerLookingFor: [],
+      partnerLanguages: []
     };
   }
 
@@ -106,8 +108,10 @@ function buildPartnerProfilePayload(user) {
     partnerWork: user.work || null,
     partnerEducation: user.education || null,
     partnerBio: user.bio || null,
+    partnerPhotos: sanitizeList(user.photos, 6),
     partnerInterests: sanitizeList(user.interests, 6),
-    partnerLookingFor: sanitizeList(user.lookingFor, 2)
+    partnerLookingFor: sanitizeList(user.lookingFor, 2),
+    partnerLanguages: sanitizeList(user.languages, 5)
   };
 }
 
@@ -586,6 +590,16 @@ io.on('connection', async (socket) => {
     const partnerId = getVerifiedPartnerId(socket, to);
     if (!partnerId) return;
     io.to(partnerId).emit('camera_state', { from: socket.id, isOff: Boolean(isOff) });
+  });
+
+  socket.on('profile_view_state', ({ to, state } = {}) => {
+    const partnerId = getVerifiedPartnerId(socket, to);
+    if (!partnerId) return;
+    const normalizedState = String(state || '').toLowerCase() === 'active' ? 'active' : 'inactive';
+    io.to(partnerId).emit('partner_profile_view_state', {
+      from: socket.id,
+      state: normalizedState
+    });
   });
 
   socket.on('private_call_request', async (payload = {}) => {

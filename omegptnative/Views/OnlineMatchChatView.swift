@@ -23,6 +23,8 @@ struct OnlineMatchChatView: View {
     @State private var incomingPreviewMessage: ChatMessage?
     @State private var keyboardHeight: CGFloat = 0
     @State private var baseSafeBottomInset: CGFloat = 0
+    @State private var showMatchArrival = false
+    @State private var heroIntroPulse = false
     @FocusState private var isComposerFocused: Bool
 
     private let bottomAnchorId = "online-match-bottom-anchor"
@@ -54,12 +56,8 @@ struct OnlineMatchChatView: View {
             : "Someone online"
     }
 
-    private var partnerAvatarURL: URL? {
-        let raw = resolvedPartner?.partnerAvatarURL
-            ?? resolvedPartner?.partnerAvatar
-            ?? resolvedPartner?.partnerProfilePic
-        guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        return URL(string: raw)
+    private var partnerAvatarPresentation: PartnerAvatarPresentation {
+        PartnerAvatarPresentation(payload: resolvedPartner)
     }
 
     private var partnerAgeLine: String {
@@ -67,6 +65,54 @@ struct OnlineMatchChatView: View {
             return "\(partnerName), \(age)"
         }
         return partnerName
+    }
+
+    private var partnerPronoun: String {
+        switch resolvedPartner?.partnerGender.lowercased() {
+        case "female":
+            return "She"
+        case "male":
+            return "He"
+        default:
+            return "They"
+        }
+    }
+
+    private var matchStatusHeadline: String {
+        "Matched with \(partnerName)"
+    }
+
+    private var matchIntroDetail: String {
+        "\(partnerPronoun) can see your profile now"
+    }
+
+    private var partnerAttentionText: String {
+        if socketService.isPartnerTyping {
+            return "\(partnerName) is typing..."
+        }
+        if socketService.isPartnerViewingProfile {
+            return "\(partnerName) is viewing your profile"
+        }
+        if socketService.sessionStage == .voiceCall {
+            return "Voice connected"
+        }
+        if socketService.messages.isEmpty {
+            return "Profile open"
+        }
+        return "Chat connected"
+    }
+
+    private var partnerAttentionTint: Color {
+        if socketService.isPartnerTyping {
+            return accentStart
+        }
+        if socketService.isPartnerViewingProfile {
+            return Color(red: 0.96, green: 0.64, blue: 0.32)
+        }
+        if socketService.sessionStage == .voiceCall {
+            return accentEnd
+        }
+        return .green
     }
 
     private var partnerBio: String {
@@ -105,6 +151,27 @@ struct OnlineMatchChatView: View {
         resolvedPartner?.partnerInterests.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? []
     }
 
+    private var languageChips: [String] {
+        resolvedPartner?.partnerLanguages.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? []
+    }
+
+    private var partnerPhotoSources: [MatchPhotoSource] {
+        let photos = resolvedPartner?.partnerPhotos ?? []
+        let avatarCandidates = Set([
+            resolvedPartner?.partnerAvatarURL,
+            resolvedPartner?.partnerAvatar,
+            resolvedPartner?.partnerProfilePic
+        ].compactMap { candidate in
+            candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.filter { !$0.isEmpty })
+
+        return photos.compactMap { raw in
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, !avatarCandidates.contains(trimmed) else { return nil }
+            return MatchPhotoSource(rawValue: trimmed)
+        }
+    }
+
     private var resolvedTargetPartnerId: String {
         let active = socketService.activePartnerId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !active.isEmpty {
@@ -121,8 +188,11 @@ struct OnlineMatchChatView: View {
         min(UIScreen.main.bounds.width * 0.68, 300)
     }
 
-    private var presenceText: String {
-        socketService.sessionStage == .voiceCall ? "Active now" : "Online now"
+    private var introHintText: String {
+        if socketService.isPartnerViewingProfile {
+            return "Your profile is visible to \(partnerName) now."
+        }
+        return "Say hi before the moment cools off."
     }
 
     private var overlayMessages: [ChatMessage] {
@@ -185,9 +255,14 @@ struct OnlineMatchChatView: View {
             .onAppear {
                 baseSafeBottomInset = UIApplication.shared.bottomSafeAreaInset
                 partnerLikes = resolvedPartner?.partnerLikes ?? partnerInfo?.partnerLikes ?? 0
+                triggerMatchArrivalIfNeeded()
+                socketService.sendProfileViewState(isActive: true)
                 withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
                     heartPulse = true
                 }
+            }
+            .onChange(of: socketService.matchedAt) { _, _ in
+                triggerMatchArrivalIfNeeded()
             }
             .onChange(of: resolvedPartner?.partnerLikes) { _, newValue in
                 partnerLikes = newValue ?? partnerLikes
@@ -236,6 +311,7 @@ struct OnlineMatchChatView: View {
                 }
             }
             .onDisappear {
+                socketService.sendProfileViewState(isActive: false)
                 let targetId = resolvedTargetPartnerId
                 if !targetId.isEmpty {
                     socketService.sendStoppedTyping(to: targetId)
@@ -302,15 +378,23 @@ struct OnlineMatchChatView: View {
                     )
                 }
 
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 10) {
-                    OnlinePresenceChip(text: presenceText, tint: .green)
-
-                    if socketService.sessionStage == .voiceCall {
-                        OnlinePresenceChip(text: "Voice connected", tint: accentStart)
-                    }
+            VStack(spacing: 14) {
+                HStack {
+                    persistentMatchStatusBar
+                    Spacer(minLength: 0)
                 }
 
+                if showMatchArrival {
+                    matchArrivalCard
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+            VStack(alignment: .leading, spacing: 14) {
                 Spacer(minLength: 0)
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -330,6 +414,17 @@ struct OnlineMatchChatView: View {
                                     .lineLimit(1)
                             }
                         }
+                    }
+
+                    HStack(spacing: 10) {
+                        Text("Mutual match")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.94))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.white.opacity(0.14), in: Capsule())
+
+                        matchedTimePill
                     }
                 }
             }
@@ -381,12 +476,37 @@ struct OnlineMatchChatView: View {
                         .frame(width: contentWidth)
                     }
 
+                    if let firstPhoto = partnerPhotoSources.first {
+                        profilePhotoCard(source: firstPhoto, width: contentWidth)
+                            .frame(width: contentWidth)
+                    }
+
+                    if !languageChips.isEmpty {
+                        chipSectionCard(
+                            title: "Languages",
+                            chips: languageChips
+                        )
+                        .frame(width: contentWidth)
+                    }
+
+                    if partnerPhotoSources.indices.contains(1) {
+                        profilePhotoCard(source: partnerPhotoSources[1], width: contentWidth)
+                            .frame(width: contentWidth)
+                    }
+
                     if !interestChips.isEmpty {
                         chipSectionCard(
                             title: "Interests",
                             chips: interestChips
                         )
                         .frame(width: contentWidth)
+                    }
+
+                    if partnerPhotoSources.count > 2 {
+                        ForEach(Array(partnerPhotoSources.dropFirst(2).enumerated()), id: \.offset) { entry in
+                            profilePhotoCard(source: entry.element, width: contentWidth)
+                                .frame(width: contentWidth)
+                        }
                     }
 
                     Color.clear
@@ -409,8 +529,8 @@ struct OnlineMatchChatView: View {
 
     @ViewBuilder
     private var heroMedia: some View {
-        if let partnerAvatarURL {
-            AsyncImage(url: partnerAvatarURL) { phase in
+        if let remoteURL = partnerAvatarPresentation.remoteURL {
+            AsyncImage(url: remoteURL) { phase in
                 switch phase {
                 case .success(let image):
                     image
@@ -420,6 +540,14 @@ struct OnlineMatchChatView: View {
                     heroPlaceholder
                 }
             }
+        } else if let inlineImage = partnerAvatarPresentation.inlineImage {
+            Image(uiImage: inlineImage)
+                .resizable()
+                .scaledToFill()
+        } else if let guestAssetName = partnerAvatarPresentation.guestAssetName {
+            Image(guestAssetName)
+                .resizable()
+                .scaledToFill()
         } else {
             heroPlaceholder
         }
@@ -442,7 +570,9 @@ struct OnlineMatchChatView: View {
                 .frame(width: 220, height: 220)
 
             OnlineMatchAvatarView(
-                url: nil,
+                url: partnerAvatarPresentation.remoteURL,
+                inlineImage: partnerAvatarPresentation.inlineImage,
+                guestAssetName: partnerAvatarPresentation.guestAssetName,
                 fallbackName: partnerName,
                 size: 124
             )
@@ -527,6 +657,47 @@ struct OnlineMatchChatView: View {
         .padding(22)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(cardBackground)
+    }
+
+    private func profilePhotoCard(source: MatchPhotoSource, width: CGFloat) -> some View {
+        let photoHeight = min(max(width * 1.22, 280), 520)
+
+        return ZStack(alignment: .bottomLeading) {
+            MatchPhotoView(source: source)
+                .frame(width: width, height: photoHeight)
+                .clipped()
+                .overlay {
+                    LinearGradient(
+                        colors: [
+                            Color.black.opacity(0.04),
+                            Color.black.opacity(0.10),
+                            Color.black.opacity(0.44)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+
+            HStack(spacing: 8) {
+                Image(systemName: "photo.on.rectangle.angled")
+                    .font(.system(size: 12, weight: .bold))
+                Text("More from \(partnerName)")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(.white.opacity(0.96))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(Color.black.opacity(0.24), in: Capsule())
+            .padding(18)
+        }
+        .frame(width: width, height: photoHeight)
+        .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .stroke(Color.white.opacity(0.26), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.10), radius: 20, x: 0, y: 10)
     }
 
     private var cardBackground: some View {
@@ -647,11 +818,11 @@ struct OnlineMatchChatView: View {
     private var glassOverlayHeader: some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(isComposerVisible ? "Reply in profile" : "Conversation")
+                Text(isComposerVisible ? "Matched conversation" : "Matched conversation")
                     .font(.system(size: isComposerVisible ? 17 : 16, weight: .bold, design: .rounded))
                     .foregroundStyle(primaryText)
 
-                Text(isComposerVisible ? "Keep the profile visible while you chat." : "Messages float over the profile.")
+                Text(isComposerVisible ? "Keep the profile open while you reply." : "You are both inside the same match now.")
                     .font(.system(size: 12, weight: .medium, design: .rounded))
                     .foregroundStyle(mutedText)
             }
@@ -733,13 +904,19 @@ struct OnlineMatchChatView: View {
     }
 
     private var glassEmptyState: some View {
-        Text("Say hi and let the conversation float over the profile.")
-            .font(.system(size: 14, weight: .medium, design: .rounded))
-            .foregroundStyle(secondaryText)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Your profile is visible to \(partnerName) now.")
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .foregroundStyle(primaryText)
+
+            Text(introHintText)
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundStyle(secondaryText)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private var panelComposer: some View {
@@ -1129,6 +1306,99 @@ struct OnlineMatchChatView: View {
         )
     }
 
+    private var persistentMatchStatusBar: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(matchStatusHeadline)
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+
+                Text(matchIntroDetail)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color.white.opacity(0.82))
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 12)
+
+            OnlinePresenceChip(text: partnerAttentionText, tint: partnerAttentionTint)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 13)
+        .background(Color.black.opacity(0.26), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color.white.opacity(0.16), lineWidth: 1)
+        )
+    }
+
+    private var matchArrivalCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("You matched with \(partnerName)")
+                .font(.system(size: 24, weight: .heavy, design: .rounded))
+                .foregroundStyle(.white)
+
+            Text(matchIntroDetail)
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundStyle(Color.white.opacity(0.86))
+
+            HStack(spacing: 10) {
+                Text("Mutual match")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.white.opacity(0.14), in: Capsule())
+
+                matchedTimePill
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .background(Color.black.opacity(0.30), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.white.opacity(0.16), lineWidth: 1)
+        )
+        .scaleEffect(heroIntroPulse ? 1.02 : 0.98)
+    }
+
+    private var matchedTimePill: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            Text("Matched \(elapsedMatchTime(at: context.date)) ago")
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(Color.white.opacity(0.92))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.white.opacity(0.12), in: Capsule())
+        }
+    }
+
+    private func elapsedMatchTime(at date: Date) -> String {
+        guard let matchedAt = socketService.matchedAt else { return "00:00" }
+        let elapsed = max(0, Int(date.timeIntervalSince(matchedAt)))
+        let minutes = elapsed / 60
+        let seconds = elapsed % 60
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+
+    private func triggerMatchArrivalIfNeeded() {
+        guard socketService.matchedAt != nil else { return }
+        heroIntroPulse = false
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+            showMatchArrival = true
+        }
+        withAnimation(.easeInOut(duration: 1.1).repeatCount(2, autoreverses: true)) {
+            heroIntroPulse = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.8) {
+            withAnimation(.easeInOut(duration: 0.26)) {
+                showMatchArrival = false
+            }
+        }
+    }
+
 private struct OnlinePresenceChip: View {
     let text: String
     let tint: Color
@@ -1167,8 +1437,75 @@ private struct OnlinePresenceChip: View {
     }
 }
 
+private struct MatchPhotoSource {
+    let remoteURL: URL?
+    let inlineImage: UIImage?
+
+    init?(rawValue: String) {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if let url = URL(string: trimmed),
+           let scheme = url.scheme?.lowercased(),
+           scheme == "http" || scheme == "https" {
+            self.remoteURL = url
+            self.inlineImage = nil
+            return
+        }
+
+        if let image = PartnerAvatarPresentation.decodeInlineImage(from: trimmed) {
+            self.remoteURL = nil
+            self.inlineImage = image
+            return
+        }
+
+        return nil
+    }
+}
+
+private struct MatchPhotoView: View {
+    let source: MatchPhotoSource
+
+    var body: some View {
+        Group {
+            if let remoteURL = source.remoteURL {
+                AsyncImage(url: remoteURL) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    default:
+                        placeholder
+                    }
+                }
+            } else if let inlineImage = source.inlineImage {
+                Image(uiImage: inlineImage)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                placeholder
+            }
+        }
+    }
+
+    private var placeholder: some View {
+        LinearGradient(
+            colors: [
+                Color(red: 0.84, green: 0.88, blue: 0.98),
+                Color(red: 0.73, green: 0.79, blue: 0.95),
+                Color(red: 0.60, green: 0.67, blue: 0.90)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+}
+
 private struct OnlineMatchAvatarView: View {
     let url: URL?
+    let inlineImage: UIImage?
+    let guestAssetName: String?
     let fallbackName: String
     let size: CGFloat
 
@@ -1185,6 +1522,14 @@ private struct OnlineMatchAvatarView: View {
                         placeholder
                     }
                 }
+            } else if let inlineImage {
+                Image(uiImage: inlineImage)
+                    .resizable()
+                    .scaledToFill()
+            } else if let guestAssetName {
+                Image(guestAssetName)
+                    .resizable()
+                    .scaledToFill()
             } else {
                 placeholder
             }

@@ -153,9 +153,109 @@ struct PartnerFoundPayload: Codable {
     let partnerWork: String?
     let partnerEducation: String?
     let partnerBio: String?
+    let partnerPhotos: [String]
     let partnerInterests: [String]
     let partnerLookingFor: [String]
+    let partnerLanguages: [String]
     let callMode: CallRequestMode?
+}
+
+struct PartnerAvatarPresentation {
+    let remoteURL: URL?
+    let inlineImage: UIImage?
+    let guestAssetName: String?
+
+    init(payload: PartnerFoundPayload?) {
+        let candidates = [
+            payload?.partnerAvatarURL,
+            payload?.partnerAvatar,
+            payload?.partnerProfilePic
+        ]
+        self.remoteURL = Self.firstValidRemoteURL(in: candidates)
+        self.inlineImage = Self.firstInlineImage(in: candidates)
+        if remoteURL == nil, inlineImage == nil, let payload {
+            self.guestAssetName = GuestAvatarAsset.assetName(
+                partnerGender: payload.partnerGender,
+                partnerId: payload.partnerId
+            )
+        } else {
+            self.guestAssetName = nil
+        }
+    }
+
+    private static func firstValidRemoteURL(in candidates: [String?]) -> URL? {
+        for candidate in candidates {
+            guard let raw = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+                continue
+            }
+            guard let url = URL(string: raw),
+                  let scheme = url.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https" else {
+                continue
+            }
+            return url
+        }
+        return nil
+    }
+
+    private static func firstInlineImage(in candidates: [String?]) -> UIImage? {
+        for candidate in candidates {
+            guard let image = decodeInlineImage(from: candidate) else { continue }
+            return image
+        }
+        return nil
+    }
+
+    static func decodeInlineImage(from rawValue: String?) -> UIImage? {
+        guard let rawValue else { return nil }
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if trimmed.hasPrefix("data:image"),
+           let base64Part = trimmed.components(separatedBy: ",").last,
+           let data = Data(base64Encoded: base64Part),
+           let image = UIImage(data: data) {
+            return image
+        }
+
+        let looksLikeBareBase64 = !trimmed.contains(" ")
+            && !trimmed.contains("http://")
+            && !trimmed.contains("https://")
+            && trimmed.count > 128
+
+        if looksLikeBareBase64,
+           let data = Data(base64Encoded: trimmed),
+           let image = UIImage(data: data) {
+            return image
+        }
+
+        return nil
+    }
+}
+
+enum GuestAvatarAsset {
+    static func assetName(partnerGender: String?, partnerId: String) -> String {
+        let normalizedGender = partnerGender?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? "unknown"
+
+        switch normalizedGender {
+        case "female":
+            return "guest_female_\(variantIndex(seed: partnerId, variants: 2))"
+        case "male":
+            return "guest_male_\(variantIndex(seed: partnerId, variants: 2))"
+        default:
+            return "guest_neutral_1"
+        }
+    }
+
+    private static func variantIndex(seed: String, variants: Int) -> Int {
+        guard variants > 1 else { return 1 }
+        let hash = seed.unicodeScalars.reduce(0) { partial, scalar in
+            ((partial * 31) + Int(scalar.value)) & 0x7fffffff
+        }
+        return (hash % variants) + 1
+    }
 }
 
 struct BanEvent: Identifiable {

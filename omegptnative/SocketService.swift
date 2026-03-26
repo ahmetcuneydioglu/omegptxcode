@@ -66,6 +66,8 @@ final class SocketService {
     var banEvent: BanEvent?
     var messages: [ChatMessage] = []
     var isPartnerTyping = false
+    private(set) var isPartnerViewingProfile = false
+    private(set) var matchedAt: Date?
     var partnerName: String?
     var partnerAvatarURL: String?
     var incomingLikeBurstID = UUID()
@@ -89,6 +91,7 @@ final class SocketService {
     private var lastGemBalanceValue: Int?
     private var lastGemBalanceUpdateAt: Date?
     private var observedStatusUserIds: Set<String> = []
+    private var localProfileViewStateIsActive = false
     private let webRTCManager = WebRTCManager.shared
     private let appUserStore = AppUserStore.shared
     private let appState = AppState.shared
@@ -150,8 +153,11 @@ final class SocketService {
         activePartnerId = nil
         activeMatch = nil
         partner = nil
+        matchedAt = nil
         messages.removeAll()
         isPartnerTyping = false
+        isPartnerViewingProfile = false
+        localProfileViewStateIsActive = false
         partnerName = nil
         partnerAvatarURL = nil
         recentPartners.removeAll()
@@ -218,6 +224,9 @@ final class SocketService {
         activePartnerId = nil
         activeMatch = nil
         partner = nil
+        matchedAt = nil
+        isPartnerViewingProfile = false
+        localProfileViewStateIsActive = false
         #endif
     }
 
@@ -258,6 +267,9 @@ final class SocketService {
         activePartnerId = nil
         activeMatch = nil
         partner = nil
+        matchedAt = nil
+        isPartnerViewingProfile = false
+        localProfileViewStateIsActive = false
         isSearching = false
         isAwaitingSearchStart = false
 
@@ -277,8 +289,11 @@ final class SocketService {
         activePartnerId = nil
         activeMatch = nil
         partner = nil
+        matchedAt = nil
         messages.removeAll()
         isPartnerTyping = false
+        isPartnerViewingProfile = false
+        localProfileViewStateIsActive = false
         partnerName = nil
         partnerAvatarURL = nil
         isSearching = false
@@ -352,6 +367,21 @@ final class SocketService {
     func sendStoppedTyping(to targetId: String) {
         #if canImport(SocketIO)
         socket?.emit("stopped_typing", ["to": targetId])
+        #endif
+    }
+
+    func sendProfileViewState(isActive: Bool) {
+        #if canImport(SocketIO)
+        guard let targetId = activePartnerId, !targetId.isEmpty else {
+            localProfileViewStateIsActive = false
+            return
+        }
+        guard localProfileViewStateIsActive != isActive else { return }
+        localProfileViewStateIsActive = isActive
+        socket?.emit("profile_view_state", [
+            "to": targetId,
+            "state": isActive ? "active" : "inactive"
+        ])
         #endif
     }
 
@@ -815,8 +845,11 @@ final class SocketService {
         activePartnerId = nil
         activeMatch = nil
         partner = nil
+        matchedAt = nil
         messages.removeAll()
         isPartnerTyping = false
+        isPartnerViewingProfile = false
+        localProfileViewStateIsActive = false
         partnerName = nil
         partnerAvatarURL = nil
         outgoingPrivateCallTargetId = nil
@@ -1012,7 +1045,10 @@ final class SocketService {
             self.partner = payload
             self.activePartnerId = payload.partnerId
             self.activeMatch = payload
+            self.matchedAt = Date()
             self.activeCallMode = nil
+            self.isPartnerViewingProfile = false
+            self.localProfileViewStateIsActive = false
             self.partnerName = (dictionary["partnerName"] as? String)
                 ?? payload.partnerName
             self.partnerAvatarURL = (dictionary["partnerAvatar"] as? String)
@@ -1127,6 +1163,14 @@ final class SocketService {
 
         socket.on("partner_stopped_typing") { [weak self] _, _ in
             self?.isPartnerTyping = false
+        }
+
+        socket.on("partner_profile_view_state") { [weak self] data, _ in
+            guard let self, let dictionary = data.first as? [String: Any] else { return }
+            let senderId = (dictionary["from"] as? String) ?? ""
+            let state = ((dictionary["state"] as? String) ?? "").lowercased()
+            guard senderId == self.activePartnerId else { return }
+            self.isPartnerViewingProfile = state == "active"
         }
 
         socket.on("candidate") { data, _ in
@@ -1418,6 +1462,16 @@ final class SocketService {
             ?? (nestedPartner?["lookingFor"] as? [String])
             ?? []
 
+        let partnerPhotos =
+            (dictionary["partnerPhotos"] as? [String])
+            ?? (nestedPartner?["photos"] as? [String])
+            ?? []
+
+        let partnerLanguages =
+            (dictionary["partnerLanguages"] as? [String])
+            ?? (nestedPartner?["languages"] as? [String])
+            ?? []
+
         return PartnerFoundPayload(
             partnerId: partnerId,
             initiator: (dictionary["initiator"] as? Bool) ?? false,
@@ -1434,8 +1488,10 @@ final class SocketService {
             partnerWork: (dictionary["partnerWork"] as? String) ?? (nestedPartner?["work"] as? String),
             partnerEducation: (dictionary["partnerEducation"] as? String) ?? (nestedPartner?["education"] as? String),
             partnerBio: (dictionary["partnerBio"] as? String) ?? (nestedPartner?["bio"] as? String),
+            partnerPhotos: partnerPhotos,
             partnerInterests: partnerInterests,
             partnerLookingFor: partnerLookingFor,
+            partnerLanguages: partnerLanguages,
             callMode: CallRequestMode(rawValue: (dictionary["callMode"] as? String) ?? "")
         )
     }

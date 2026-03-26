@@ -29,6 +29,7 @@ struct VideoChatView: View {
     @State private var hasSentTyping = false
     @State private var showReportModal = false
     @State private var showReportToast = false
+    @State private var showMatchBanner = false
     @FocusState private var isChatFocused: Bool
 
     init(
@@ -145,7 +146,9 @@ struct VideoChatView: View {
                 ChatOverlayView(
                     messages: socketService.messages,
                     partnerName: partnerDisplayName,
-                    partnerAvatarURL: validatedPartnerAvatarURL
+                    partnerAvatarURL: validatedPartnerAvatarURL,
+                    partnerInlineAvatar: validatedPartnerInlineAvatar,
+                    guestAvatarAssetName: partnerAvatarPresentation.guestAssetName
                 )
                     .padding(.leading, 14)
                     .padding(.trailing, 72)
@@ -239,6 +242,8 @@ struct VideoChatView: View {
             .onAppear {
                 baseSafeBottomInset = UIApplication.shared.bottomSafeAreaInset
                 partnerLikes = partnerInfo?.partnerLikes ?? 0
+                socketService.sendProfileViewState(isActive: false)
+                triggerMatchBannerIfNeeded()
                 withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
                     heartPulse = true
                 }
@@ -250,6 +255,9 @@ struct VideoChatView: View {
             }
             .onChange(of: partnerInfo?.partnerLikes) { _, newValue in
                 partnerLikes = newValue ?? partnerLikes
+            }
+            .onChange(of: socketService.matchedAt) { _, _ in
+                triggerMatchBannerIfNeeded()
             }
             .onChange(of: socketService.incomingLikeBurstID) { _, _ in
                 spawnHeartBurst(count: Int.random(in: 5...10))
@@ -276,6 +284,7 @@ struct VideoChatView: View {
                 }
             }
             .onDisappear {
+                socketService.sendProfileViewState(isActive: false)
                 typingStopWorkItem?.cancel()
                 if hasSentTyping {
                     socketService.sendStoppedTyping(to: partnerId)
@@ -418,12 +427,16 @@ struct ChatOverlayView: View {
     let messages: [ChatMessage]
     let partnerName: String
     let partnerAvatarURL: String?
+    let partnerInlineAvatar: UIImage?
+    let guestAvatarAssetName: String?
     private var appUserStore = AppUserStore.shared
 
-    init(messages: [ChatMessage], partnerName: String, partnerAvatarURL: String?) {
+    init(messages: [ChatMessage], partnerName: String, partnerAvatarURL: String?, partnerInlineAvatar: UIImage?, guestAvatarAssetName: String?) {
         self.messages = messages
         self.partnerName = partnerName
         self.partnerAvatarURL = partnerAvatarURL
+        self.partnerInlineAvatar = partnerInlineAvatar
+        self.guestAvatarAssetName = guestAvatarAssetName
     }
 
     var body: some View {
@@ -498,6 +511,9 @@ struct ChatOverlayView: View {
         let avatarURLString = isMine
             ? validatedURLString(message.senderProfilePic ?? myAvatar)
             : validatedURLString(message.senderProfilePic ?? partnerAvatarURL)
+        let inlineAvatar = isMine
+            ? PartnerAvatarPresentation.decodeInlineImage(from: message.senderProfilePic ?? myAvatar)
+            : PartnerAvatarPresentation.decodeInlineImage(from: message.senderProfilePic) ?? partnerInlineAvatar
         if let avatarURLString, let url = URL(string: avatarURLString), !avatarURLString.isEmpty {
             AsyncImage(url: url) { phase in
                 switch phase {
@@ -512,6 +528,18 @@ struct ChatOverlayView: View {
             }
             .frame(width: 30, height: 30)
             .clipShape(Circle())
+        } else if let inlineAvatar {
+            Image(uiImage: inlineAvatar)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 30, height: 30)
+                .clipShape(Circle())
+        } else if !isMine, let guestAvatarAssetName {
+            Image(guestAvatarAssetName)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 30, height: 30)
+                .clipShape(Circle())
         } else {
             InitialAvatarView(
                 name: isMine ? (appUserStore.currentUser?.name ?? "Me") : partnerName,
@@ -955,20 +983,66 @@ private extension VideoChatView {
     }
 
     var partnerIdentity: some View {
-        HStack(spacing: 8) {
-            partnerAvatarView
-                .frame(width: 32, height: 32)
-
-            Text(partnerDisplayName)
-                .font(.subheadline.weight(.semibold))
+        VStack(alignment: .leading, spacing: 10) {
+            if showMatchBanner {
+                HStack(spacing: 8) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 12, weight: .bold))
+                    Text("You matched with \(partnerDisplayName)")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .lineLimit(1)
+                }
                 .foregroundStyle(.white)
-                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(Color.white.opacity(0.10), in: Capsule())
+                .transition(.move(edge: .leading).combined(with: .opacity))
+            }
+
+            HStack(spacing: 10) {
+                partnerAvatarView
+                    .frame(width: 36, height: 36)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Matched with \(partnerDisplayName)")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+
+                    Text(partnerAttentionText)
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.84))
+                        .lineLimit(1)
+                }
+            }
+
+            HStack(spacing: 8) {
+                Text("Mutual match")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.92))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.white.opacity(0.10), in: Capsule())
+
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text("Matched \(elapsedMatchTime(at: context.date)) ago")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.92))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.white.opacity(0.10), in: Capsule())
+                }
+            }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
         .background(.ultraThinMaterial)
-        .background(Color.black.opacity(0.16))
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background(Color.black.opacity(0.18))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.white.opacity(0.14), lineWidth: 1)
+        )
     }
 
     func chatInputBar() -> some View {
@@ -1175,6 +1249,26 @@ private extension VideoChatView {
         return "Partner"
     }
 
+    var partnerAttentionText: String {
+        if socketService.isPartnerTyping {
+            return "\(partnerDisplayName) is typing..."
+        }
+        if socketService.isPartnerViewingProfile {
+            return "\(partnerDisplayName) is viewing your profile"
+        }
+        if socketService.sessionStage == .voiceCall {
+            return "Voice connected"
+        }
+        if socketService.messages.isEmpty {
+            return "\(partnerDisplayName) is here with you"
+        }
+        return "Chat connected"
+    }
+
+    var partnerAvatarPresentation: PartnerAvatarPresentation {
+        PartnerAvatarPresentation(payload: socketService.activeMatch ?? partnerInfo)
+    }
+
     @ViewBuilder
     var partnerAvatarView: some View {
         if let avatar = validatedPartnerAvatarURL,
@@ -1198,6 +1292,22 @@ private extension VideoChatView {
             .overlay(
                 Circle().stroke(Color.white.opacity(0.7), lineWidth: 1)
             )
+        } else if let inlineAvatar = validatedPartnerInlineAvatar {
+            Image(uiImage: inlineAvatar)
+                .resizable()
+                .scaledToFill()
+                .clipShape(Circle())
+                .overlay(
+                    Circle().stroke(Color.white.opacity(0.7), lineWidth: 1)
+                )
+        } else if let guestAssetName = partnerAvatarPresentation.guestAssetName {
+            Image(guestAssetName)
+                .resizable()
+                .scaledToFill()
+                .clipShape(Circle())
+                .overlay(
+                    Circle().stroke(Color.white.opacity(0.7), lineWidth: 1)
+                )
         } else {
             InitialAvatarView(name: partnerDisplayName, size: 32)
         }
@@ -1211,12 +1321,40 @@ private extension VideoChatView {
         return validatedURLString(candidate)
     }
 
+    var validatedPartnerInlineAvatar: UIImage? {
+        let candidate = socketService.partnerAvatarURL
+            ?? partnerInfo?.partnerAvatarURL
+            ?? partnerInfo?.partnerProfilePic
+            ?? partnerInfo?.partnerAvatar
+        return PartnerAvatarPresentation.decodeInlineImage(from: candidate)
+    }
+
     func validatedURLString(_ raw: String?) -> String? {
         guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         guard let url = URL(string: raw), let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
             return nil
         }
         return raw
+    }
+
+    func elapsedMatchTime(at date: Date) -> String {
+        guard let matchedAt = socketService.matchedAt else { return "00:00" }
+        let elapsed = max(0, Int(date.timeIntervalSince(matchedAt)))
+        let minutes = elapsed / 60
+        let seconds = elapsed % 60
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+
+    func triggerMatchBannerIfNeeded() {
+        guard socketService.matchedAt != nil else { return }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.84)) {
+            showMatchBanner = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) {
+            withAnimation(.easeInOut(duration: 0.22)) {
+                showMatchBanner = false
+            }
+        }
     }
 
     var countryFlag: String {

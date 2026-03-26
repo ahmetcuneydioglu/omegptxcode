@@ -33,7 +33,7 @@ enum LoginRequiredContext {
         case .profile:
             return "Profilini kaydetmek, duzenlemek ve sosyal ozellikleri kullanmak icin giris yapin."
         case .guestUpgrade:
-            return "Ilk eslesmeni kullandin. Yeni bir eslesmeye gecmek ve profil ozelliklerini acmak icin giris yapin."
+            return "Ilk 5 eslesmeni kullandin. 6. eslesmeye gecmek ve profil ozelliklerini acmak icin giris yapin."
         }
     }
 }
