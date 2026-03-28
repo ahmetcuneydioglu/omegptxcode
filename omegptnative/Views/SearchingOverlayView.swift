@@ -90,25 +90,25 @@ struct SearchingOverlayView: View {
     private var backgroundLayer: some View {
         ZStack {
             Rectangle()
-                .fill(Color.black.opacity(0.45))
+                .fill(Color.white.opacity(0.62))
             Circle()
-                .fill(Color.purple.opacity(0.28))
+                .fill(Color(red: 0.76, green: 0.35, blue: 0.98).opacity(0.24))
                 .frame(width: 310, height: 310)
                 .blur(radius: 80)
                 .offset(x: -130, y: -140)
             Circle()
-                .fill(Color.blue.opacity(0.3))
+                .fill(Color(red: 0.42, green: 0.55, blue: 1.0).opacity(0.22))
                 .frame(width: 320, height: 320)
                 .blur(radius: 90)
                 .offset(x: 120, y: 170)
             Circle()
-                .fill(Color.cyan.opacity(0.18))
+                .fill(Color(red: 1.0, green: 0.46, blue: 0.74).opacity(0.18))
                 .frame(width: 220, height: 220)
                 .blur(radius: 80)
                 .offset(x: 100, y: -180)
         }
-        .blur(radius: 14)
-        .overlay(Rectangle().fill(.ultraThinMaterial).opacity(0.6))
+        .blur(radius: 10)
+        .overlay(Rectangle().fill(.ultraThinMaterial).opacity(0.35))
         .ignoresSafeArea()
     }
 
@@ -121,12 +121,11 @@ struct SearchingOverlayView: View {
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color(red: 0.39, green: 0.36, blue: 0.54))
                         .frame(width: 38, height: 38)
-                        .background(.ultraThinMaterial)
-                        .background(Color.black.opacity(0.35))
+                        .background(Color.white.opacity(0.84))
                         .clipShape(Circle())
-                        .overlay(Circle().stroke(Color.white.opacity(0.28), lineWidth: 0.8))
+                        .overlay(Circle().stroke(Color.white.opacity(0.96), lineWidth: 1))
                 }
                 .buttonStyle(.plain)
             }
@@ -140,16 +139,15 @@ struct SearchingOverlayView: View {
         VStack {
             Text(animatedBadgeText)
                 .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white)
+                .foregroundStyle(Color(red: 0.37, green: 0.35, blue: 0.52))
                 .padding(.horizontal, 13)
                 .padding(.vertical, 8)
-                .background(.ultraThinMaterial)
-                .background(Color.black.opacity(0.22))
+                .background(Color.white.opacity(0.84))
                 .clipShape(Capsule())
                 .overlay(
-                    Capsule().stroke(Color.white.opacity(0.3), lineWidth: 0.5)
+                    Capsule().stroke(Color.white.opacity(0.96), lineWidth: 1)
                 )
-                .shadow(color: Color.black.opacity(0.18), radius: 8, x: 0, y: 3)
+                .shadow(color: Color(red: 0.75, green: 0.68, blue: 0.86).opacity(0.18), radius: 10, x: 0, y: 4)
                 .animation(.spring(response: 0.36, dampingFraction: 0.82), value: animatedBadgeText)
                 .padding(.top, geometry.safeAreaInsets.top + 74)
 
@@ -171,14 +169,14 @@ struct SearchingOverlayView: View {
                         .trim(from: 0, to: fallbackProgress)
                         .stroke(
                             AngularGradient(
-                                colors: [Color.cyan.opacity(0.95), Color.blue.opacity(0.85), Color.cyan.opacity(0.95)],
+                                colors: [Color(red: 0.86, green: 0.35, blue: 0.95), Color(red: 0.40, green: 0.52, blue: 1.0), Color(red: 0.86, green: 0.35, blue: 0.95)],
                                 center: .center
                             ),
                             style: StrokeStyle(lineWidth: 3.5, lineCap: .round)
                         )
                         .frame(width: 220, height: 220)
                         .rotationEffect(.degrees(-90))
-                        .shadow(color: Color.cyan.opacity(0.35), radius: 10)
+                        .shadow(color: Color(red: 0.85, green: 0.42, blue: 0.93).opacity(0.32), radius: 10)
                         .animation(.linear(duration: 0.05), value: fallbackProgress)
                         .zIndex(1)
                 }
@@ -188,8 +186,8 @@ struct SearchingOverlayView: View {
                         RadialGradient(
                             colors: [
                                 Color.white.opacity(0.95),
-                                Color.cyan.opacity(0.75),
-                                Color.blue.opacity(0.45),
+                                Color(red: 0.96, green: 0.47, blue: 0.77).opacity(0.62),
+                                Color(red: 0.46, green: 0.56, blue: 1.0).opacity(0.38),
                                 .clear
                             ],
                             center: .center,
@@ -205,25 +203,25 @@ struct SearchingOverlayView: View {
                 Circle()
                     .fill(
                         LinearGradient(
-                            colors: [Color.white.opacity(0.95), Color.cyan.opacity(0.55)],
+                            colors: [Color.white.opacity(0.95), Color(red: 0.86, green: 0.35, blue: 0.95).opacity(0.55)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
                     )
                     .frame(width: 26, height: 26)
-                    .shadow(color: Color.cyan.opacity(0.65), radius: 14)
+                    .shadow(color: Color(red: 0.85, green: 0.42, blue: 0.93).opacity(0.45), radius: 14)
                     .zIndex(3)
 
                 Image(systemName: "chevron.left.2")
                     .font(.system(size: 30, weight: .black))
-                    .foregroundStyle(.white)
-                    .shadow(color: Color.blue.opacity(0.5), radius: 10)
+                    .foregroundStyle(Color.white)
+                    .shadow(color: Color(red: 0.57, green: 0.33, blue: 0.95).opacity(0.35), radius: 10)
                     .zIndex(4)
 
                 Circle()
                     .fill(
                         LinearGradient(
-                            colors: [Color.yellow.opacity(0.5), Color.cyan.opacity(0.5)],
+                            colors: [Color(red: 1.0, green: 0.63, blue: 0.79).opacity(0.48), Color(red: 0.48, green: 0.56, blue: 1.0).opacity(0.48)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -238,7 +236,7 @@ struct SearchingOverlayView: View {
 
             Text("Searching...")
                 .font(.system(size: 24, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
+                .foregroundStyle(Color(red: 0.36, green: 0.33, blue: 0.49))
                 .scaleEffect(pulseText ? 1.03 : 0.97)
                 .opacity(pulseText ? 0.98 : 0.78)
                 .animation(.easeInOut(duration: 1.35).repeatForever(autoreverses: true), value: pulseText)
@@ -251,20 +249,19 @@ struct SearchingOverlayView: View {
 
             ZStack {
                 Capsule()
-                    .fill(.ultraThinMaterial)
-                    .background(Color.black.opacity(0.22))
-                    .overlay(Capsule().stroke(Color.white.opacity(0.24), lineWidth: 0.5))
+                    .fill(Color.white.opacity(0.84))
+                    .overlay(Capsule().stroke(Color.white.opacity(0.96), lineWidth: 1))
 
                 GeometryReader { proxy in
                     HStack(spacing: 40) {
                         Text(marqueeText)
                             .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.92))
+                            .foregroundStyle(Color(red: 0.45, green: 0.43, blue: 0.56))
                             .lineLimit(1)
                             .fixedSize(horizontal: true, vertical: false)
                         Text(marqueeText)
                             .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.92))
+                            .foregroundStyle(Color(red: 0.45, green: 0.43, blue: 0.56))
                             .lineLimit(1)
                             .fixedSize(horizontal: true, vertical: false)
                     }
@@ -292,9 +289,9 @@ struct OrbWaveRing: View {
             .stroke(
                 LinearGradient(
                     colors: [
-                        Color.cyan.opacity(0.75),
-                        Color.blue.opacity(0.55),
-                        Color.white.opacity(0.15),
+                        Color(red: 0.86, green: 0.35, blue: 0.95).opacity(0.65),
+                        Color(red: 0.46, green: 0.56, blue: 1.0).opacity(0.45),
+                        Color.white.opacity(0.20),
                         .clear
                     ],
                     startPoint: .topLeading,
@@ -325,8 +322,8 @@ struct RadarRing: View {
             .stroke(
                 LinearGradient(
                     colors: [
-                        Color(red: 0.15, green: 0.94, blue: 0.52).opacity(isIntensified ? 0.92 : 0.75),
-                        Color(red: 0.06, green: 0.55, blue: 1.0).opacity(isIntensified ? 0.75 : 0.48),
+                        Color(red: 0.96, green: 0.43, blue: 0.74).opacity(isIntensified ? 0.92 : 0.75),
+                        Color(red: 0.52, green: 0.44, blue: 0.98).opacity(isIntensified ? 0.78 : 0.52),
                         .clear
                     ],
                     startPoint: .topLeading,
@@ -368,11 +365,11 @@ struct SwipeArrowIndicator: View {
             .symbolRenderingMode(.palette)
             .foregroundStyle(
                 .white,
-                Color(red: 0.16, green: 0.95, blue: 0.54),
-                Color(red: 0.1, green: 0.65, blue: 1.0)
+                Color(red: 0.98, green: 0.47, blue: 0.74),
+                Color(red: 0.54, green: 0.43, blue: 0.98)
             )
             .offset(x: slide ? -14 : 14)
-            .shadow(color: Color.green.opacity(isIntensified ? 0.55 : 0.3), radius: 12, x: 0, y: 0)
+            .shadow(color: Color(red: 0.84, green: 0.44, blue: 0.92).opacity(isIntensified ? 0.55 : 0.3), radius: 12, x: 0, y: 0)
             .onAppear {
                 withAnimation(.easeInOut(duration: 1.45).repeatForever(autoreverses: true)) {
                     slide = true

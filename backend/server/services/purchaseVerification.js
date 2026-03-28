@@ -64,19 +64,46 @@ function decodeJWSPayload(jws) {
   return JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
 }
 
+function readableError(error, fallback) {
+  if (!error) return fallback;
+  if (typeof error === 'string' && error.trim()) return error;
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return fallback;
+}
+
 async function fetchAppleTransaction(transactionId, environment) {
   const baseUrl =
     environment === 'sandbox'
       ? 'https://api.storekit-sandbox.itunes.apple.com'
       : 'https://api.storekit.itunes.apple.com';
 
-  const response = await fetch(`${baseUrl}/inApps/v1/transactions/${encodeURIComponent(transactionId)}`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${generateAppleServerApiToken()}`,
-      Accept: 'application/json',
-    },
-  });
+  let token;
+  try {
+    token = generateAppleServerApiToken();
+  } catch (error) {
+    return {
+      ok: false,
+      status: 500,
+      body: `APPLE_API_TOKEN_GENERATION_FAILED: ${readableError(error, 'Token could not be generated')}`,
+    };
+  }
+
+  let response;
+  try {
+    response = await fetch(`${baseUrl}/inApps/v1/transactions/${encodeURIComponent(transactionId)}`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+      },
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      status: 502,
+      body: `APPLE_TRANSACTION_LOOKUP_EXCEPTION: ${readableError(error, 'Apple lookup request failed')}`,
+    };
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -100,50 +127,58 @@ async function verifyApplePurchase(data) {
       reason: 'APPLE_VERIFICATION_NOT_CONFIGURED',
     };
   }
+  try {
+    const productionResult = await fetchAppleTransaction(data.transactionId, 'production');
+    const result =
+      productionResult.ok || productionResult.status !== 404
+        ? productionResult
+        : await fetchAppleTransaction(data.transactionId, 'sandbox');
 
-  const productionResult = await fetchAppleTransaction(data.transactionId, 'production');
-  const result =
-    productionResult.ok || productionResult.status !== 404
-      ? productionResult
-      : await fetchAppleTransaction(data.transactionId, 'sandbox');
+    if (!result.ok) {
+      return {
+        isValid: false,
+        reason: 'APPLE_TRANSACTION_LOOKUP_FAILED',
+        details: result.body,
+      };
+    }
 
-  if (!result.ok) {
+    const signedTransactionInfo = result.data?.signedTransactionInfo;
+    if (!signedTransactionInfo) {
+      return {
+        isValid: false,
+        reason: 'APPLE_SIGNED_TRANSACTION_MISSING',
+      };
+    }
+
+    const payload = decodeJWSPayload(signedTransactionInfo);
+    const productMatches = payload.productId === data.productId;
+    const transactionMatches = String(payload.transactionId) === String(data.transactionId);
+    const bundleMatches = payload.bundleId === APPLE_BUNDLE_ID;
+
+    if (!productMatches || !transactionMatches || !bundleMatches) {
+      return {
+        isValid: false,
+        reason: 'APPLE_TRANSACTION_MISMATCH',
+        details: `expected bundle=${APPLE_BUNDLE_ID}, got bundle=${payload.bundleId}, expected product=${data.productId}, got product=${payload.productId}`,
+        payload,
+      };
+    }
+
+    return {
+      isValid: true,
+      platform: 'ios',
+      productId: payload.productId,
+      transactionId: String(payload.transactionId),
+      environment: payload.environment || 'production',
+      rawPayload: payload,
+    };
+  } catch (error) {
     return {
       isValid: false,
-      reason: 'APPLE_TRANSACTION_LOOKUP_FAILED',
-      details: result.body,
+      reason: 'APPLE_VERIFICATION_EXCEPTION',
+      details: readableError(error, 'Unknown Apple verification exception'),
     };
   }
-
-  const signedTransactionInfo = result.data?.signedTransactionInfo;
-  if (!signedTransactionInfo) {
-    return {
-      isValid: false,
-      reason: 'APPLE_SIGNED_TRANSACTION_MISSING',
-    };
-  }
-
-  const payload = decodeJWSPayload(signedTransactionInfo);
-  const productMatches = payload.productId === data.productId;
-  const transactionMatches = String(payload.transactionId) === String(data.transactionId);
-  const bundleMatches = payload.bundleId === APPLE_BUNDLE_ID;
-
-  if (!productMatches || !transactionMatches || !bundleMatches) {
-    return {
-      isValid: false,
-      reason: 'APPLE_TRANSACTION_MISMATCH',
-      payload,
-    };
-  }
-
-  return {
-    isValid: true,
-    platform: 'ios',
-    productId: payload.productId,
-    transactionId: String(payload.transactionId),
-    environment: payload.environment || 'production',
-    rawPayload: payload,
-  };
 }
 
 async function verifyPurchaseWithStore(payload) {

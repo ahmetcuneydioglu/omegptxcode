@@ -14,7 +14,11 @@ struct HistoryView: View {
     @StateObject private var viewModel = HistoryViewModel()
     private var socketService = SocketService.shared
     private var appState = AppState.shared
+    private var appUserStore = AppUserStore.shared
     @State private var selectedTab: HistoryTab = .history
+    @State private var showStoreSheet = false
+    @State private var showInsufficientGemsSheet = false
+    @State private var insufficientGemsMessage = "Bu islem icin yeterli Gem bulunmuyor."
 
     init(currentUserId: String?) {
         self.currentUserId = currentUserId
@@ -70,9 +74,30 @@ struct HistoryView: View {
                 guard incomingCall != nil else { return }
                 dismiss()
             }
+            .onChange(of: socketService.storePresentationRequestID) { _, newValue in
+                guard newValue != nil else { return }
+                insufficientGemsMessage = socketService.storePresentationMessage
+                showInsufficientGemsSheet = true
+                socketService.consumeStorePresentationRequest()
+            }
             .onChange(of: socketService.userOnlineStates) { _, states in
                 viewModel.applyOnlineStates(states)
             }
+        }
+        .sheet(isPresented: $showStoreSheet) {
+            StoreView(dbUserId: appUserStore.currentUser?.id)
+        }
+        .sheet(isPresented: $showInsufficientGemsSheet) {
+            InsufficientGemsSheet(
+                message: insufficientGemsMessage,
+                currentGems: appUserStore.currentUser?.gems ?? 0,
+                onStore: {
+                    showStoreSheet = true
+                }
+            )
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(.ultraThinMaterial)
         }
         .globalToastOverlay()
     }

@@ -6,11 +6,17 @@ struct ProfileView: View {
     var appUserStore: AppUserStore
     let onClose: () -> Void
     let onLogout: () -> Void
+    private var socketService = SocketService.shared
+    private var appState = AppState.shared
 
     @State private var profileVM = ProfileViewModel()
     @State private var selectedTab = 0
     @State private var showEditSheet = false
+    @State private var showStoreSheet = false
+    @State private var showInsufficientGemsSheet = false
     @State private var activeEditor: ProfileEditorSheet?
+    @State private var selectedPreviewUser: FollowingUser?
+    @State private var insufficientGemsMessage = "Bu islem icin yeterli Gem bulunmuyor."
     @State private var draftName = ""
     @State private var draftBio = ""
     @State private var selectedInterests: Set<String> = []
@@ -50,7 +56,6 @@ struct ProfileView: View {
                 .background(profileBackground)
                 .toolbar(.hidden, for: .navigationBar)
         }
-        .preferredColorScheme(.dark)
         .task {
             await handleInitialTask()
         }
@@ -66,7 +71,41 @@ struct ProfileView: View {
         .onChange(of: avatarPickerItem) { _, newValue in
             handleAvatarPickerChange(newValue)
         }
+        .onChange(of: socketService.activePartnerId) { _, newPartnerId in
+            guard newPartnerId != nil else { return }
+            onClose()
+        }
+        .onChange(of: socketService.incomingPrivateCall) { _, incomingCall in
+            guard incomingCall != nil else { return }
+            onClose()
+        }
+        .onChange(of: socketService.storePresentationRequestID) { _, newValue in
+            guard newValue != nil else { return }
+            insufficientGemsMessage = socketService.storePresentationMessage
+            showInsufficientGemsSheet = true
+            socketService.consumeStorePresentationRequest()
+        }
         .sheet(isPresented: $showEditSheet, content: editProfileSheet)
+        .sheet(isPresented: $showStoreSheet) {
+            StoreView(dbUserId: appUserStore.currentUser?.id)
+        }
+        .sheet(isPresented: $showInsufficientGemsSheet) {
+            InsufficientGemsSheet(
+                message: insufficientGemsMessage,
+                currentGems: appUserStore.currentUser?.gems ?? 0,
+                onStore: {
+                    showStoreSheet = true
+                }
+            )
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(.ultraThinMaterial)
+        }
+        .sheet(item: $selectedPreviewUser) { user in
+            FollowingUserProfileSheet(user: user)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
     }
 
     private var profileScrollContent: some View {
@@ -78,28 +117,50 @@ struct ProfileView: View {
                 tabBarSection
                 tabContentSection
             }
-            .padding(.bottom, 40)
+            .padding(.bottom, 34)
         }
     }
 
     private var statsSectionView: some View {
         statsBar
             .padding(.horizontal, 20)
-            .padding(.top, 24)
+            .padding(.top, 28)
     }
 
     private var tabBarSection: some View {
         tabBar
-            .padding(.top, 28)
+            .padding(.horizontal, 20)
+            .padding(.top, 24)
     }
 
     private var tabContentSection: some View {
         tabContent
-            .padding(.top, 4)
+            .padding(.top, 16)
     }
 
     private var profileBackground: some View {
-        Color(red: 0.04, green: 0.04, blue: 0.10).ignoresSafeArea()
+        ZStack {
+            Color(red: 0.97, green: 0.96, blue: 0.99)
+                .ignoresSafeArea()
+
+            Circle()
+                .fill(Color(red: 0.77, green: 0.46, blue: 1.0).opacity(0.16))
+                .frame(width: 260, height: 260)
+                .blur(radius: 16)
+                .offset(x: 124, y: -236)
+
+            Circle()
+                .fill(Color(red: 1.0, green: 0.56, blue: 0.78).opacity(0.16))
+                .frame(width: 230, height: 230)
+                .blur(radius: 24)
+                .offset(x: -120, y: -120)
+
+            Circle()
+                .fill(Color(red: 0.57, green: 0.71, blue: 1.0).opacity(0.10))
+                .frame(width: 260, height: 260)
+                .blur(radius: 30)
+                .offset(x: 0, y: 310)
+        }
     }
 
     private func editProfileSheet() -> some View {
@@ -139,13 +200,13 @@ struct ProfileView: View {
 
     private var headerButtons: some View {
         HStack {
+            Button(action: onClose) {
+                headerCircleButton(icon: "arrow.left")
+            }
+            .buttonStyle(.plain)
+
             Button { showEditSheet = true } label: {
-                Image(systemName: "pencil")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.9))
-                    .frame(width: 40, height: 40)
-                    .background(.ultraThinMaterial, in: Circle())
-                    .overlay(Circle().stroke(Color.white.opacity(0.1), lineWidth: 1))
+                headerCircleButton(icon: "pencil")
             }
             .buttonStyle(.plain)
 
@@ -154,12 +215,7 @@ struct ProfileView: View {
             NavigationLink {
                 SettingsView(onLogout: onLogout)
             } label: {
-                Image(systemName: "gearshape.fill")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.9))
-                    .frame(width: 40, height: 40)
-                    .background(.ultraThinMaterial, in: Circle())
-                    .overlay(Circle().stroke(Color.white.opacity(0.1), lineWidth: 1))
+                headerCircleButton(icon: "gearshape")
             }
             .buttonStyle(.plain)
         }
@@ -172,35 +228,109 @@ struct ProfileView: View {
     private var profileHero: some View {
         VStack(spacing: 12) {
             ZStack(alignment: .bottomTrailing) {
-                avatarView
-                    .frame(width: 110, height: 110)
-                    .clipShape(Circle())
-                    .overlay(Circle().stroke(accentGradient, lineWidth: 3))
-                    .shadow(color: Color(red: 0.44, green: 0.28, blue: 1.0).opacity(0.4), radius: 16, x: 0, y: 4)
+                ZStack {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.61, green: 0.28, blue: 1.0),
+                                    Color(red: 1.0, green: 0.38, blue: 0.70)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 126, height: 126)
+                        .blur(radius: 14)
+                        .opacity(0.30)
+
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.98),
+                                    Color(red: 0.99, green: 0.93, blue: 0.98)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .frame(width: 122, height: 122)
+                        .overlay(
+                            Circle()
+                                .stroke(
+                                    LinearGradient(
+                                        colors: [
+                                            Color(red: 0.63, green: 0.31, blue: 1.0),
+                                            Color(red: 1.0, green: 0.40, blue: 0.72),
+                                            Color.white.opacity(0.85)
+                                        ],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 4
+                                )
+                        )
+
+                    avatarView
+                        .frame(width: 102, height: 102)
+                        .clipShape(Circle())
+                }
+                .shadow(color: Color(red: 0.76, green: 0.42, blue: 1.0).opacity(0.28), radius: 24, x: 0, y: 8)
+
+                Circle()
+                    .fill(Color(red: 0.23, green: 0.84, blue: 0.45))
+                    .frame(width: 14, height: 14)
+                    .overlay(Circle().stroke(Color.white, lineWidth: 2))
+                    .offset(x: -2, y: -4)
 
                 PhotosPicker(selection: $avatarPickerItem, matching: .images) {
                     ZStack {
                         Circle()
-                            .fill(Color(red: 0.44, green: 0.28, blue: 1.0))
-                            .frame(width: 34, height: 34)
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color(red: 0.82, green: 0.41, blue: 1.0),
+                                        Color(red: 1.0, green: 0.43, blue: 0.73)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 40, height: 40)
+                            .overlay(Circle().stroke(Color.white.opacity(0.9), lineWidth: 2))
+                            .shadow(color: Color(red: 0.79, green: 0.42, blue: 1.0).opacity(0.28), radius: 10, x: 0, y: 6)
                         Image(systemName: "camera.fill")
-                            .font(.system(size: 13, weight: .bold))
+                            .font(.system(size: 14, weight: .bold))
                             .foregroundStyle(.white)
                     }
                 }
                 .buttonStyle(.plain)
-                .offset(x: 2, y: 2)
+                .offset(x: 4, y: 4)
             }
-            .padding(.top, 16)
+            .padding(.top, 18)
 
             Text(displayName)
-                .font(.system(size: 24, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
+                .font(.system(size: 25, weight: .heavy, design: .rounded))
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.55, green: 0.20, blue: 1.0),
+                            Color(red: 0.95, green: 0.31, blue: 0.67)
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
 
-            Text(displayCountry)
-                .font(.system(size: 14, weight: .medium, design: .rounded))
-                .foregroundStyle(.white.opacity(0.45))
-                .padding(.top, -4)
+            HStack(spacing: 6) {
+                Image(systemName: "mappin.and.ellipse")
+                    .font(.system(size: 13, weight: .semibold))
+                Text(displayCountry)
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+            }
+            .foregroundStyle(Color(red: 0.44, green: 0.46, blue: 0.55))
+            .padding(.top, -2)
         }
     }
 
@@ -208,78 +338,68 @@ struct ProfileView: View {
 
     private var statsBar: some View {
         HStack(spacing: 0) {
-            statItem(icon: "person.badge.plus", value: "\(appUserStore.currentUser?.followingCount ?? 0)", title: "Takip", color: Color(red: 0.44, green: 0.28, blue: 1.0))
-            statDivider
-            statItem(icon: "person.2.fill", value: "\(appUserStore.currentUser?.followersCount ?? 0)", title: "Takipci", color: Color(red: 0.22, green: 0.60, blue: 1.0))
-            statDivider
-            statItem(icon: "heart.fill", value: "\(appUserStore.currentUser?.likes ?? 0)", title: "Begeni", color: Color(red: 1.0, green: 0.35, blue: 0.55))
-            statDivider
-            statItem(icon: "diamond.fill", value: "\(appUserStore.currentUser?.gems ?? 0)", title: "Gem", color: Color(red: 0.98, green: 0.78, blue: 0.25))
+            statItem(icon: "person.2.fill", value: "\(appUserStore.currentUser?.followingCount ?? 0)", title: "Takip", color: Color(red: 0.45, green: 0.60, blue: 1.0))
+            statItem(icon: "person.3.fill", value: "\(appUserStore.currentUser?.followersCount ?? 0)", title: "Takipci", color: Color(red: 0.79, green: 0.44, blue: 0.98))
+            statItem(icon: "heart.fill", value: "\(appUserStore.currentUser?.likes ?? 0)", title: "Begeni", color: Color(red: 1.0, green: 0.43, blue: 0.58))
+            statItem(icon: "diamond.fill", value: "\(appUserStore.currentUser?.gems ?? 0)", title: "Gem", color: Color(red: 1.0, green: 0.72, blue: 0.20))
         }
-        .padding(.vertical, 18)
+        .padding(.vertical, 24)
+        .padding(.horizontal, 8)
         .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.white.opacity(0.06))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                )
-        )
+        .modifier(ProfileGlassCard(cornerRadius: 28))
     }
 
     private func statItem(icon: String, value: String, title: String, color: Color) -> some View {
         VStack(spacing: 8) {
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(color)
+            ZStack {
+                Circle()
+                    .fill(color)
+                    .frame(width: 38, height: 38)
+                Image(systemName: icon)
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.white)
+            }
             Text(value)
-                .font(.system(size: 18, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
+                .font(.system(size: 19, weight: .bold, design: .rounded))
+                .foregroundStyle(color)
             Text(title)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.45))
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundStyle(Color(red: 0.40, green: 0.43, blue: 0.52))
         }
         .frame(maxWidth: .infinity)
-    }
-
-    private var statDivider: some View {
-        Rectangle()
-            .fill(Color.white.opacity(0.08))
-            .frame(width: 1, height: 44)
     }
 
     // MARK: - Tab Bar
 
     private var tabBar: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                tabButton("Takip", index: 0)
-                tabButton("Takipci", index: 1)
-            }
-            Rectangle()
-                .fill(Color.white.opacity(0.08))
-                .frame(height: 1)
+        HStack(spacing: 10) {
+            tabButton("Takip", index: 0)
+            tabButton("Takipci", index: 1)
         }
+        .padding(8)
+        .modifier(ProfileGlassCard(cornerRadius: 22))
     }
 
     private func tabButton(_ title: String, index: Int) -> some View {
         Button {
             withAnimation(.easeInOut(duration: 0.2)) { selectedTab = index }
         } label: {
-            VStack(spacing: 10) {
-                Text(title)
-                    .font(.system(size: 16, weight: selectedTab == index ? .bold : .medium, design: .rounded))
-                    .foregroundStyle(selectedTab == index ? .white : .white.opacity(0.38))
-                    .animation(.easeInOut(duration: 0.2), value: selectedTab)
-                Rectangle()
-                    .fill(selectedTab == index ? Color(red: 0.44, green: 0.28, blue: 1.0) : Color.clear)
-                    .frame(height: 2)
-                    .animation(.easeInOut(duration: 0.2), value: selectedTab)
-            }
+            Text(title)
+                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .foregroundStyle(
+                    selectedTab == index
+                        ? AnyShapeStyle(accentGradient)
+                        : AnyShapeStyle(Color(red: 0.48, green: 0.50, blue: 0.58))
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(selectedTab == index ? Color.white.opacity(0.88) : Color.clear)
+                )
+                .animation(.easeInOut(duration: 0.2), value: selectedTab)
         }
         .buttonStyle(.plain)
-        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Tab Content
@@ -288,7 +408,7 @@ struct ProfileView: View {
         ZStack {
             if profileVM.isLoading {
                 ProgressView()
-                    .tint(.white.opacity(0.5))
+                    .tint(Color(red: 0.56, green: 0.28, blue: 1.0))
                     .padding(.top, 60)
                     .frame(maxWidth: .infinity)
             } else if !appUserStore.isLoggedIn {
@@ -309,37 +429,31 @@ struct ProfileView: View {
         VStack(spacing: 12) {
             Image(systemName: "person.crop.circle.badge.questionmark")
                 .font(.system(size: 36, weight: .light))
-                .foregroundStyle(.white.opacity(0.2))
+                .foregroundStyle(Color(red: 0.63, green: 0.62, blue: 0.72))
             Text("Takip listesini gormek icin giris yap")
                 .font(.system(size: 14, weight: .medium, design: .rounded))
-                .foregroundStyle(.white.opacity(0.3))
+                .foregroundStyle(Color(red: 0.45, green: 0.46, blue: 0.55))
         }
         .padding(.top, 60)
         .frame(maxWidth: .infinity)
     }
 
     private func followList(users: [FollowingUser], emptyLabel: String) -> some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 14) {
             if users.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "person.2.slash")
                         .font(.system(size: 36, weight: .light))
-                        .foregroundStyle(.white.opacity(0.2))
+                        .foregroundStyle(Color(red: 0.63, green: 0.62, blue: 0.72))
                     Text(emptyLabel)
                         .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.3))
+                        .foregroundStyle(Color(red: 0.45, green: 0.46, blue: 0.55))
                 }
                 .padding(.top, 60)
                 .frame(maxWidth: .infinity)
             } else {
                 ForEach(users) { user in
                     followUserRow(user: user)
-                    if user.id != users.last?.id {
-                        Rectangle()
-                            .fill(Color.white.opacity(0.06))
-                            .frame(height: 1)
-                            .padding(.leading, 76)
-                    }
                 }
             }
         }
@@ -352,64 +466,171 @@ struct ProfileView: View {
                 if case .success(let img) = phase {
                     img.resizable().scaledToFill()
                 } else {
-                    Circle().fill(Color.white.opacity(0.08))
-                        .overlay(Image(systemName: "person.fill").foregroundStyle(.white.opacity(0.4)))
+                    Circle().fill(Color.white.opacity(0.8))
+                        .overlay(Image(systemName: "person.fill").foregroundStyle(Color(red: 0.67, green: 0.67, blue: 0.76)))
                 }
             }
-            .frame(width: 52, height: 52)
+            .frame(width: 56, height: 56)
             .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(user.name ?? "Kullanici")
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
-                if let country = user.country, !country.isEmpty {
-                    HStack(spacing: 4) {
-                        if let flag = user.countryFlag { Text(flag).font(.system(size: 12)) }
-                        Text(country.uppercased())
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.4))
-                    }
-                }
+                    .foregroundStyle(Color(red: 0.20, green: 0.23, blue: 0.30))
                 HStack(spacing: 6) {
-                    Circle()
-                        .fill(user.status == .online ? Color.green : Color.white.opacity(0.2))
-                        .frame(width: 7, height: 7)
+                    Image(systemName: "globe")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Color(red: 0.43, green: 0.46, blue: 0.56))
+                    if let flag = user.countryFlag {
+                        Text(flag)
+                            .font(.system(size: 11))
+                    }
+                    Text((user.country ?? "TR").uppercased())
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color(red: 0.43, green: 0.46, blue: 0.56))
+                    Text("•")
+                        .foregroundStyle(Color(red: 0.70, green: 0.71, blue: 0.78))
                     Text(user.status == .online ? "Cevrimici" : "Cevrimdisi")
                         .font(.system(size: 11, weight: .medium, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.35))
+                        .foregroundStyle(user.status == .online ? Color(red: 0.25, green: 0.76, blue: 0.45) : Color(red: 0.58, green: 0.60, blue: 0.67))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Button {
-                Task {
-                    if let uid = appUserStore.currentUser?.id {
-                        await profileVM.toggleFollow(targetId: user.id, currentUserId: uid)
-                    }
+            VStack(spacing: 10) {
+                Button {
+                    selectedPreviewUser = user
+                } label: {
+                    Text("Profil")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(red: 0.31, green: 0.34, blue: 0.43))
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
+                        .frame(minWidth: 88)
+                        .background(
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .fill(Color.white.opacity(0.94))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .stroke(Color.white.opacity(0.76), lineWidth: 1)
+                        )
                 }
-            } label: {
-                Text(user.isFollowing ? "Takiptesin" : "Takip Et")
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .fill(user.isFollowing
-                                  ? Color(red: 0.44, green: 0.28, blue: 1.0).opacity(0.3)
-                                  : Color.white.opacity(0.1))
-                            .overlay(
+                .buttonStyle(.plain)
+
+                if user.status == .online || outgoingRequestPhase(for: user) != nil {
+                    Button {
+                        handlePrimaryAction(for: user)
+                    } label: {
+                        HStack(spacing: 6) {
+                            if outgoingRequestPhase(for: user) != nil {
+                                ProgressView()
+                                    .tint(.white)
+                                    .scaleEffect(0.8)
+                            }
+                            Text(outgoingRequestPhase(for: user) != nil ? "Vazgec" : "Ara")
+                        }
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
+                        .frame(minWidth: 88)
+                        .background(
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .fill(outgoingRequestPhase(for: user) != nil ? Color.red.opacity(0.82) : Color.green.opacity(0.82))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                } else if user.status == .busy {
+                    Button {
+                        appState.showTimedToast("Kullanici su an baska bir gorusmede.")
+                    } label: {
+                        Text("Mesgul")
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 10)
+                            .frame(minWidth: 88)
+                            .background(
                                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                    .stroke(user.isFollowing
-                                            ? Color(red: 0.44, green: 0.28, blue: 1.0).opacity(0.6)
-                                            : Color.white.opacity(0.15), lineWidth: 1)
+                                    .fill(Color.red.opacity(0.68))
                             )
-                    )
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Button {
+                    Task {
+                        if let uid = appUserStore.currentUser?.id {
+                            await profileVM.toggleFollow(targetId: user.id, currentUserId: uid)
+                        }
+                    }
+                } label: {
+                    Text(user.isFollowing ? "Takiptesin" : "Takip Et")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(user.isFollowing ? .white : Color(red: 0.49, green: 0.33, blue: 0.96))
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .fill(
+                                    user.isFollowing
+                                        ? LinearGradient(
+                                            colors: [
+                                                Color(red: 0.57, green: 0.26, blue: 1.0),
+                                                Color(red: 0.97, green: 0.33, blue: 0.67)
+                                            ],
+                                            startPoint: .leading,
+                                            endPoint: .trailing
+                                        )
+                                        : LinearGradient(
+                                            colors: [Color.white.opacity(0.95), Color.white.opacity(0.88)],
+                                            startPoint: .leading,
+                                            endPoint: .trailing
+                                        )
+                                )
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .stroke(Color.white.opacity(user.isFollowing ? 0.0 : 0.55), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
-        .padding(.vertical, 14)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 16)
+        .modifier(ProfileGlassCard(cornerRadius: 24))
+    }
+
+    private func outgoingRequestPhase(for user: FollowingUser) -> PrivateCallRequestPhase? {
+        socketService.outgoingPrivateCallTargetId == user.id ? socketService.outgoingPrivateCallPhase : nil
+    }
+
+    private func handlePrimaryAction(for user: FollowingUser) {
+        if outgoingRequestPhase(for: user) != nil {
+            socketService.cancelPrivateCall(targetId: user.id)
+            return
+        }
+
+        switch user.status {
+        case .online:
+            socketService.requestPrivateCall(targetUserId: user.id)
+        case .busy:
+            appState.showTimedToast("Kullanici su an baska bir gorusmede.")
+        case .offline:
+            selectedPreviewUser = user
+        }
+    }
+
+    private func headerCircleButton(icon: String) -> some View {
+        Image(systemName: icon)
+            .font(.system(size: 16, weight: .bold))
+            .foregroundStyle(Color(red: 0.36, green: 0.38, blue: 0.47))
+            .frame(width: 44, height: 44)
+            .background(Color.white.opacity(0.68), in: Circle())
+            .overlay(Circle().stroke(Color.white.opacity(0.72), lineWidth: 1))
+            .shadow(color: Color(red: 0.56, green: 0.49, blue: 0.78).opacity(0.12), radius: 18, x: 0, y: 8)
     }
 
     // MARK: - Edit Sheet
@@ -1028,6 +1249,204 @@ private enum ProfileEditorSheet: String, Identifiable {
         case .name: return "Profilinizde gosterilecek adinizi duzenleyin."
         case .bio: return "Kendiniz hakkinda biraz bir sey paylasin."
         case .location: return "Bulundugunuz konumu burada goruntuleyebilirsiniz."
+        }
+    }
+}
+
+private struct ProfileGlassCard: ViewModifier {
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(Color.white.opacity(0.42))
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .stroke(Color.white.opacity(0.72), lineWidth: 1)
+                    )
+                    .shadow(color: Color(red: 0.62, green: 0.54, blue: 0.82).opacity(0.14), radius: 24, x: 0, y: 12)
+            )
+    }
+}
+
+private struct FollowingUserProfileSheet: View {
+    let user: FollowingUser
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.97, green: 0.96, blue: 0.99),
+                        Color(red: 0.95, green: 0.94, blue: 0.98)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 22) {
+                        avatar
+                            .padding(.top, 24)
+
+                        VStack(spacing: 8) {
+                            Text(displayName)
+                                .font(.system(size: 28, weight: .heavy, design: .rounded))
+                                .foregroundStyle(
+                                    LinearGradient(
+                                        colors: [
+                                            Color(red: 0.55, green: 0.20, blue: 1.0),
+                                            Color(red: 0.95, green: 0.31, blue: 0.67)
+                                        ],
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+
+                            HStack(spacing: 8) {
+                                Image(systemName: "globe")
+                                Text(countryLine)
+                                Text("•")
+                                Text(statusLine)
+                            }
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color(red: 0.43, green: 0.46, blue: 0.56))
+                        }
+
+                        VStack(alignment: .leading, spacing: 14) {
+                            profileInfoRow(icon: "person.crop.circle", title: "Durum", value: statusLine)
+                            profileInfoRow(icon: "mappin.and.ellipse", title: "Bolge", value: countryLine)
+                            profileInfoRow(icon: "heart.circle", title: "Baglanti", value: user.isFollowing ? "Takiptesin" : "Henuz takip etmiyorsun")
+                        }
+                        .padding(20)
+                        .background(
+                            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                .fill(Color.white.opacity(0.60))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                        .stroke(Color.white.opacity(0.8), lineWidth: 1)
+                                )
+                        )
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 32)
+                }
+            }
+            .navigationTitle("Profil")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(Color(red: 0.32, green: 0.35, blue: 0.44))
+                            .frame(width: 32, height: 32)
+                            .background(Color.white.opacity(0.72), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private var displayName: String {
+        let trimmed = user.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? "Kullanici" : trimmed
+    }
+
+    private var countryLine: String {
+        let code = (user.country ?? "TR").uppercased()
+        if let flag = user.countryFlag, !flag.isEmpty {
+            return "\(flag) \(code)"
+        }
+        return "\(CountryDataProvider.flagEmoji(forRegionCode: code)) \(code)"
+    }
+
+    private var statusLine: String {
+        switch user.status {
+        case .online:
+            return "Su an online"
+        case .busy:
+            return "Su an mesgul"
+        case .offline:
+            return "Su an offline"
+        }
+    }
+
+    private var avatar: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.62, green: 0.30, blue: 1.0),
+                            Color(red: 0.98, green: 0.42, blue: 0.72)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 132, height: 132)
+                .blur(radius: 14)
+                .opacity(0.24)
+
+            AsyncImage(url: URL(string: user.avatar ?? "")) { phase in
+                if case .success(let image) = phase {
+                    image
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Circle()
+                        .fill(Color.white.opacity(0.92))
+                        .overlay(
+                            Image(systemName: "person.fill")
+                                .font(.system(size: 42, weight: .semibold))
+                                .foregroundStyle(Color(red: 0.68, green: 0.67, blue: 0.76))
+                        )
+                }
+            }
+            .frame(width: 112, height: 112)
+            .clipShape(Circle())
+            .overlay(
+                Circle()
+                    .stroke(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.55, green: 0.20, blue: 1.0),
+                                Color(red: 0.95, green: 0.31, blue: 0.67)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 4
+                    )
+            )
+        }
+    }
+
+    private func profileInfoRow(icon: String, title: String, value: String) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Color(red: 0.56, green: 0.28, blue: 1.0))
+                .frame(width: 26)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color(red: 0.50, green: 0.52, blue: 0.60))
+                Text(value)
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color(red: 0.22, green: 0.24, blue: 0.32))
+            }
+
+            Spacer()
         }
     }
 }

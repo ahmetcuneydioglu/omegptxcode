@@ -78,12 +78,22 @@ struct OnlineMatchChatView: View {
         }
     }
 
+    private var isPrivateCallFlow: Bool {
+        resolvedPartner?.privateCall == true
+    }
+
     private var matchStatusHeadline: String {
-        "Matched with \(partnerName)"
+        if isPrivateCallFlow {
+            return partnerName
+        }
+        return "Matched with \(partnerName)"
     }
 
     private var matchIntroDetail: String {
-        "\(partnerPronoun) can see your profile now"
+        if isPrivateCallFlow {
+            return "Private call connected"
+        }
+        return "\(partnerPronoun) can see your profile now"
     }
 
     private var partnerAttentionText: String {
@@ -92,6 +102,9 @@ struct OnlineMatchChatView: View {
         }
         if socketService.isPartnerViewingProfile {
             return "\(partnerName) is viewing your profile"
+        }
+        if socketService.sessionStage == .videoCall {
+            return "Video connected"
         }
         if socketService.sessionStage == .voiceCall {
             return "Voice connected"
@@ -189,6 +202,9 @@ struct OnlineMatchChatView: View {
     }
 
     private var introHintText: String {
+        if isPrivateCallFlow {
+            return "You are connected with \(partnerName) now."
+        }
         if socketService.isPartnerViewingProfile {
             return "Your profile is visible to \(partnerName) now."
         }
@@ -384,7 +400,7 @@ struct OnlineMatchChatView: View {
                     Spacer(minLength: 0)
                 }
 
-                if showMatchArrival {
+                if showMatchArrival && !isPrivateCallFlow {
                     matchArrivalCard
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
@@ -416,15 +432,17 @@ struct OnlineMatchChatView: View {
                         }
                     }
 
-                    HStack(spacing: 10) {
-                        Text("Mutual match")
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.94))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(Color.white.opacity(0.14), in: Capsule())
+                    if !isPrivateCallFlow {
+                        HStack(spacing: 10) {
+                            Text("Mutual match")
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.94))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color.white.opacity(0.14), in: Capsule())
 
-                        matchedTimePill
+                            matchedTimePill
+                        }
                     }
                 }
             }
@@ -1398,6 +1416,11 @@ struct OnlineMatchChatView: View {
     }
 
     private func triggerMatchArrivalIfNeeded() {
+        guard !isPrivateCallFlow else {
+            showMatchArrival = false
+            heroIntroPulse = false
+            return
+        }
         guard socketService.matchedAt != nil else { return }
         heroIntroPulse = false
         withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {

@@ -1675,6 +1675,16 @@ app.post('/api/store/verify-purchase', requireAuth, userActionRateLimit, async (
   const { productId, transactionId, receiptData, platform } = req.body;
   const dbUserId = req.auth.userId;
 
+  const verificationErrorMessage = (verification) => {
+    const detail =
+      typeof verification?.details === 'string' && verification.details.trim()
+        ? verification.details
+        : typeof verification?.reason === 'string' && verification.reason.trim()
+          ? verification.reason
+          : 'UNKNOWN_PURCHASE_VERIFICATION_ERROR';
+    return `Satin alma dogrulanamadi: ${detail}`;
+  };
+
   console.log(`🛒 Satın Alma Talebi: User:${dbUserId}, Product:${productId}, Tx:${transactionId}, Platform:${platform}`);
 
   try {
@@ -1701,8 +1711,9 @@ app.post('/api/store/verify-purchase', requireAuth, userActionRateLimit, async (
 
     if (!verification.isValid) {
       return res.status(400).json({
-        error: 'Satın alma doğrulanamadı.',
+        error: verificationErrorMessage(verification),
         reason: verification.reason || 'UNKNOWN_PURCHASE_VERIFICATION_ERROR',
+        detail: verification.details || null,
       });
     }
 
@@ -1732,7 +1743,9 @@ app.post('/api/store/verify-purchase', requireAuth, userActionRateLimit, async (
 
   } catch (err) {
     console.error("Store Hatası:", err);
-    res.status(500).json({ error: "İşlem sırasında sunucu hatası oluştu." });
+    res.status(500).json({
+      error: err?.message || "Islem sirasinda sunucu hatasi olustu.",
+    });
   }
 });
 

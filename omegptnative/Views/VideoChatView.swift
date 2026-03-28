@@ -984,7 +984,7 @@ private extension VideoChatView {
 
     var partnerIdentity: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if showMatchBanner {
+            if showMatchBanner && !isPrivateCallFlow {
                 HStack(spacing: 8) {
                     Image(systemName: "sparkles")
                         .font(.system(size: 12, weight: .bold))
@@ -1004,7 +1004,7 @@ private extension VideoChatView {
                     .frame(width: 36, height: 36)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Matched with \(partnerDisplayName)")
+                    Text(isPrivateCallFlow ? partnerDisplayName : "Matched with \(partnerDisplayName)")
                         .font(.system(size: 14, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                         .lineLimit(1)
@@ -1016,21 +1016,23 @@ private extension VideoChatView {
                 }
             }
 
-            HStack(spacing: 8) {
-                Text("Mutual match")
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.92))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.white.opacity(0.10), in: Capsule())
-
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text("Matched \(elapsedMatchTime(at: context.date)) ago")
+            if !isPrivateCallFlow {
+                HStack(spacing: 8) {
+                    Text("Mutual match")
                         .font(.system(size: 11, weight: .bold, design: .rounded))
                         .foregroundStyle(.white.opacity(0.92))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
                         .background(Color.white.opacity(0.10), in: Capsule())
+
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        Text("Matched \(elapsedMatchTime(at: context.date)) ago")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.92))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.white.opacity(0.10), in: Capsule())
+                    }
                 }
             }
         }
@@ -1249,12 +1251,19 @@ private extension VideoChatView {
         return "Partner"
     }
 
+    var isPrivateCallFlow: Bool {
+        (socketService.activeMatch ?? partnerInfo)?.privateCall == true
+    }
+
     var partnerAttentionText: String {
         if socketService.isPartnerTyping {
             return "\(partnerDisplayName) is typing..."
         }
         if socketService.isPartnerViewingProfile {
             return "\(partnerDisplayName) is viewing your profile"
+        }
+        if socketService.sessionStage == .videoCall {
+            return "Video connected"
         }
         if socketService.sessionStage == .voiceCall {
             return "Voice connected"
@@ -1346,6 +1355,10 @@ private extension VideoChatView {
     }
 
     func triggerMatchBannerIfNeeded() {
+        guard !isPrivateCallFlow else {
+            showMatchBanner = false
+            return
+        }
         guard socketService.matchedAt != nil else { return }
         withAnimation(.spring(response: 0.35, dampingFraction: 0.84)) {
             showMatchBanner = true

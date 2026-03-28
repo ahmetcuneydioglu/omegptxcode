@@ -472,6 +472,13 @@ final class SocketService {
         storePresentationRequestID = nil
     }
 
+    private func presentStorePrompt(message: String) {
+        DispatchQueue.main.async {
+            self.storePresentationMessage = message
+            self.storePresentationRequestID = UUID()
+        }
+    }
+
     func resetGuestMatchProgress() {
         guestMatchCount = 0
     }
@@ -483,6 +490,11 @@ final class SocketService {
             return
         }
         guard !targetUserId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let currentGems = appUserStore.currentUser?.gems ?? 0
+        guard currentGems >= 50 else {
+            presentStorePrompt(message: "Ozel arama yapabilmek icin 50 Gem gereklidir.")
+            return
+        }
         let payload: [String: Any] = [
             "targetUserId": targetUserId,
             "mode": CallRequestMode.video.rawValue
@@ -778,11 +790,7 @@ final class SocketService {
                     context: .targetBusy
                 )
             case .insufficientGems:
-                self.appState.showGlobalAlert(
-                    title: "Yetersiz Gem",
-                    message: "Ozel arama yapabilmek icin 50 Gem gereklidir. Magazaya gidip Gem almak ister misiniz?",
-                    context: .insufficientGems
-                )
+                self.presentStorePrompt(message: "Ozel arama yapabilmek icin 50 Gem gereklidir.")
             }
         }
     }
@@ -872,8 +880,7 @@ final class SocketService {
 
         switch code {
         case "INSUFFICIENT_GEMS":
-            storePresentationMessage = resolvedMessage
-            storePresentationRequestID = UUID()
+            presentStorePrompt(message: resolvedMessage)
         case "AUTH_REQUIRED":
             appUserStore.handleUnauthorized()
         default:
@@ -1036,8 +1043,7 @@ final class SocketService {
             if type == "INSUFFICIENT_GEMS" {
                 let message = (dictionary["message"] as? String)
                     ?? "Filtre kullanmak için yeterli taşın yok! Mağazadan hemen yükleyebilirsin."
-                self.storePresentationMessage = message
-                self.storePresentationRequestID = UUID()
+                self.presentStorePrompt(message: message)
                 self.stopSearch()
             } else if let message = dictionary["message"] as? String, !message.isEmpty {
                 self.appState.showTimedToast(message)
@@ -1422,7 +1428,7 @@ final class SocketService {
                 self?.outgoingCallMode = nil
                 self?.privateCallPhaseWorkItem?.cancel()
                 self?.privateCallPhaseWorkItem = nil
-                self?.showPrivateCallToast("Yetersiz Gem. Ozel arama icin 50 Gem gerekli.")
+                self?.presentStorePrompt(message: "Ozel arama icin 50 Gem gerekli.")
             }
         }
 

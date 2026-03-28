@@ -106,6 +106,87 @@ struct LoginRequiredSheet: View {
     }
 }
 
+struct InsufficientGemsSheet: View {
+    let message: String
+    let currentGems: Int
+    let onStore: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "diamond.fill")
+                .font(.system(size: 34, weight: .bold))
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(
+                    Color(red: 1.0, green: 0.45, blue: 0.68),
+                    Color(red: 1.0, green: 0.78, blue: 0.30)
+                )
+
+            Text("Yetersiz Gem")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundStyle(.white)
+
+            Text(message)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(.white.opacity(0.8))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 8)
+
+            Text("Mevcut Gem: \(currentGems)")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.72))
+
+            Button {
+                dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    onStore()
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "bag.fill")
+                    Text("Gem Yukle")
+                        .fontWeight(.semibold)
+                }
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+                .background(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.64, green: 0.28, blue: 1.0),
+                            Color(red: 0.99, green: 0.35, blue: 0.68)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                dismiss()
+            } label: {
+                Text("Simdilik Vazgec")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.84))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
+                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(
+            Color.black.opacity(0.22)
+                .background(.ultraThinMaterial)
+        )
+    }
+}
+
 struct BannedView: View {
     let reason: String
     let expireAt: Date?

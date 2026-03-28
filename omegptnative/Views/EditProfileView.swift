@@ -203,15 +203,6 @@ struct EditProfileView: View {
     ]
     private let maxAdditionalPhotos = 3
     private let maxEncodedImageLength = 1_900_000
-    private var completionPercent: Int {
-        var score = 0
-        if !draftName.isEmpty { score += 20 }
-        if localAvatar != nil || (appUserStore.currentUser?.avatar != nil) { score += 20 }
-        if !draftBio.isEmpty { score += 20 }
-        if !draftInterests.isEmpty { score += 20 }
-        if !draftGender.isEmpty { score += 20 }
-        return score
-    }
 
     private var profileAvatarURL: URL? {
         guard let raw = appUserStore.currentUser?.avatar,
@@ -235,8 +226,7 @@ struct EditProfileView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
                     pageTitle
-                    completionCard.padding(.top, 20)
-                    photoSection.padding(.top, 28)
+                    photoSection.padding(.top, 24)
                     interestsSection.padding(.top, 28)
                     bioSection.padding(.top, 28)
                     generalSection.padding(.top, 28)
@@ -342,40 +332,11 @@ struct EditProfileView: View {
             .padding(.top, 8)
     }
 
-    // MARK: - Completion Card
-
-    private var completionCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Profili tamamla")
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color(.label))
-                Spacer()
-                Text("\(completionPercent)% tamamlandı")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(accentRed)
-            }
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color(.systemFill))
-                        .frame(height: 6)
-                    Capsule().fill(accentRed)
-                        .frame(width: geo.size.width * CGFloat(completionPercent) / 100, height: 6)
-                        .animation(.easeInOut(duration: 0.4), value: completionPercent)
-                }
-            }
-            .frame(height: 6)
-        }
-        .padding(16)
-        .background(cardBg, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 2)
-    }
-
     // MARK: - Photo Section
 
     private var photoSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader("Profil fotoğrafı", badge: "+20%")
+            sectionHeader("Profil fotoğrafı")
             Text("Daha fazla ilgi çekmek için en iyi fotoğrafınızı ekleyin, ilk izlenim önemlidir!")
                 .font(.system(size: 13, weight: .regular, design: .rounded))
                 .foregroundStyle(Color(.secondaryLabel))
@@ -432,24 +393,38 @@ struct EditProfileView: View {
             .buttonStyle(.plain)
         } else {
             let photoIndex = index - 1
-            let binding = Binding<[PhotosPickerItem]>(
-                get: { photoPickerItems[photoIndex].map { [$0] } ?? [] },
-                set: { photoPickerItems[photoIndex] = $0.first }
+            let binding = Binding<PhotosPickerItem?>(
+                get: { photoPickerItems[photoIndex] },
+                set: { photoPickerItems[photoIndex] = $0 }
             )
 
-            if hasExtraPhoto(at: photoIndex) {
-                slotBase(index: index)
-            } else {
+            ZStack(alignment: .topTrailing) {
                 PhotosPicker(selection: binding, matching: .images) {
                     slotBase(index: index)
                         .overlay(alignment: .topTrailing) {
-                            badgeIcon(name: "plus", filled: false)
-                                .padding(6)
+                            if !hasExtraPhoto(at: photoIndex) {
+                                badgeIcon(name: "plus", filled: false)
+                                    .padding(6)
+                            }
                         }
                 }
                 .buttonStyle(.plain)
                 .onChange(of: photoPickerItems[photoIndex]) { _, item in
                     Task { await loadPhoto(item, index: photoIndex) }
+                }
+
+                if hasExtraPhoto(at: photoIndex) {
+                    Button {
+                        Task { await clearExtraPhoto(at: photoIndex) }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 24, height: 24)
+                            .background(Color.black.opacity(0.55), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(6)
                 }
             }
         }
@@ -516,7 +491,7 @@ struct EditProfileView: View {
 
     private var interestsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("İlgi alanlarım", badge: "+10%")
+            sectionHeader("İlgi alanlarım")
             Text("Sevdiğiniz şeyler hakkında daha spesifik olun")
                 .font(.system(size: 13, weight: .regular, design: .rounded))
                 .foregroundStyle(Color(.secondaryLabel))
@@ -588,7 +563,7 @@ struct EditProfileView: View {
 
     private var bioSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("Biyografi", badge: "+10%")
+            sectionHeader("Biyografi")
             Text("Daha fazla takipçi kazanmak için kendinizi tanıtın")
                 .font(.system(size: 13, weight: .regular, design: .rounded))
                 .foregroundStyle(Color(.secondaryLabel))
@@ -776,16 +751,10 @@ struct EditProfileView: View {
         Self.birthDateFormatter.string(from: draftBirthDate)
     }
 
-    private func sectionHeader(_ title: String, badge: String) -> some View {
-        HStack(spacing: 8) {
-            Text(title)
-                .font(.system(size: 18, weight: .bold, design: .rounded))
-                .foregroundStyle(Color(.label))
-            Spacer()
-            Text(badge)
-                .font(.system(size: 13, weight: .bold, design: .rounded))
-                .foregroundStyle(accentRed)
-        }
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 18, weight: .bold, design: .rounded))
+            .foregroundStyle(Color(.label))
     }
 
     private func aboutSectionBlock<Content: View>(
@@ -1145,6 +1114,20 @@ struct EditProfileView: View {
                 AppState.shared.showTimedToast(appUserStore.authErrorMessage ?? "Fotograflar silinemedi.")
             }
         }
+    }
+
+    private func clearExtraPhoto(at index: Int) async {
+        guard extraPhotoPayloads.indices.contains(index),
+              extraPhotoImages.indices.contains(index),
+              photoPickerItems.indices.contains(index) else { return }
+
+        await MainActor.run {
+            extraPhotoPayloads[index] = nil
+            extraPhotoImages[index] = nil
+            photoPickerItems[index] = nil
+        }
+
+        await persistExtraPhotos()
     }
 
     private func persistExtraPhotos() async {

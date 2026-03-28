@@ -10,7 +10,9 @@ struct MainCameraView: View {
     @State private var showGenderSheet = false
     @State private var showCountrySheet = false
     @State private var showLoginRequiredSheet = false
+    @State private var showInsufficientGemsSheet = false
     @State private var loginRequiredContext: LoginRequiredContext = .filters
+    @State private var insufficientGemsMessage = "Bu islem icin yeterli Gem bulunmuyor."
     @State private var showProfileSheet = false
     @State private var showHistorySheet = false
     @State private var hasShownGuestUpgradePrompt = false
@@ -63,7 +65,7 @@ struct MainCameraView: View {
                         partnerId: activePartnerId,
                         partnerInfo: socketService.activeMatch,
                         onEnd: {
-                            socketService.endVideoCall()
+                            skipToNextPartner()
                         },
                         onFlipCamera: {
                             WebRTCManager.shared.switchCamera()
@@ -179,17 +181,10 @@ struct MainCameraView: View {
             }
             .onChange(of: socketService.storePresentationRequestID) { _, _ in
                 guard socketService.storePresentationRequestID != nil else { return }
+                guard !showProfileSheet, !showHistorySheet else { return }
                 if appUserStore.isLoggedIn {
-                    gemToastMessage = socketService.storePresentationMessage
-                    withAnimation(.easeOut(duration: 0.22)) {
-                        showGemToast = true
-                        isStorePresented = true
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
-                        withAnimation(.easeIn(duration: 0.2)) {
-                            showGemToast = false
-                        }
-                    }
+                    insufficientGemsMessage = socketService.storePresentationMessage
+                    showInsufficientGemsSheet = true
                 } else {
                     presentLoginRequiredSheet(.store)
                 }
@@ -224,6 +219,18 @@ struct MainCameraView: View {
                     .presentationDetents([.medium])
                     .presentationDragIndicator(.visible)
                     .presentationBackground(.ultraThinMaterial)
+            }
+            .sheet(isPresented: $showInsufficientGemsSheet) {
+                InsufficientGemsSheet(
+                    message: insufficientGemsMessage,
+                    currentGems: appUserStore.currentUser?.gems ?? 0,
+                    onStore: {
+                        isStorePresented = true
+                    }
+                )
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(.ultraThinMaterial)
             }
             .sheet(isPresented: $showProfileSheet) {
                 ProfileView(
@@ -268,29 +275,28 @@ struct MainCameraView: View {
                 topOverlay
                     .padding(.top, 8)
                     .padding(.horizontal, 16)
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 18) {
+                        onlineDiscoveryCard
+                            .padding(.top, 26)
 
-                Spacer()
+                        if !socketService.isSearching {
+                            JoinNotificationView()
+                        }
+
+                        bottomControls
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, max(geometry.safeAreaInsets.bottom, 18) + 28)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
-            onlineDiscoveryCard
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                .padding(.horizontal, 20)
-
-            bottomControls
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                .padding(.horizontal, 16)
-                .padding(.bottom, max(geometry.safeAreaInsets.bottom, 18))
-
             MatchRadarView(isIntensified: isRadarIntensified)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .padding(.bottom, max(geometry.safeAreaInsets.bottom, 18) + 120)
                 .allowsHitTesting(false)
-
-            if !socketService.isSearching {
-                JoinNotificationView()
-                    .padding(.bottom, max(geometry.safeAreaInsets.bottom, 18) + 70)
-                    .zIndex(40)
-            }
+                .opacity(socketService.isSearching ? 0.22 : 0.22)
 
             if socketService.isSearching {
                 SearchingOverlayView(
@@ -496,16 +502,8 @@ struct MainCameraView: View {
         guard required > 0 else { return true }
 
         if gems < required {
-            gemToastMessage = "Filtre kullanmak için yeterli taşın yok! Mağazadan hemen yükleyebilirsin."
-            withAnimation(.easeOut(duration: 0.22)) {
-                showGemToast = true
-                isStorePresented = true
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
-                withAnimation(.easeIn(duration: 0.2)) {
-                    showGemToast = false
-                }
-            }
+            insufficientGemsMessage = "Secili filtreleri kullanabilmek icin en az \(required) Gem gerekiyor."
+            showInsufficientGemsSheet = true
             return false
         }
         return true
@@ -584,43 +582,70 @@ struct MainCameraView: View {
         ZStack {
             LinearGradient(
                 colors: [
-                    Color(red: 0.06, green: 0.07, blue: 0.1),
-                    Color(red: 0.03, green: 0.04, blue: 0.07)
+                    Color(red: 0.985, green: 0.975, blue: 0.995),
+                    Color(red: 0.972, green: 0.966, blue: 0.992),
+                    Color(red: 0.964, green: 0.972, blue: 1.0)
                 ],
-                startPoint: .top,
+                startPoint: .topLeading,
                 endPoint: .bottom
             )
 
             Circle()
-                .fill(Color.white.opacity(0.04))
-                .frame(width: 150, height: 150)
-                .blur(radius: 1)
+                .fill(Color(red: 0.76, green: 0.35, blue: 0.98).opacity(0.18))
+                .frame(width: 290, height: 290)
+                .blur(radius: 28)
+                .offset(x: -130, y: -250)
+
+            Circle()
+                .fill(Color(red: 1.0, green: 0.44, blue: 0.72).opacity(0.12))
+                .frame(width: 260, height: 260)
+                .blur(radius: 24)
+                .offset(x: 135, y: -80)
+
+            Circle()
+                .fill(Color(red: 0.46, green: 0.56, blue: 1.0).opacity(0.10))
+                .frame(width: 250, height: 250)
+                .blur(radius: 28)
+                .offset(x: 120, y: 320)
 
             Image(systemName: "camera.fill")
                 .font(.system(size: 44, weight: .semibold))
-                .foregroundStyle(Color.white.opacity(0.24))
+                .foregroundStyle(Color(red: 0.63, green: 0.61, blue: 0.74).opacity(0.16))
         }
     }
 
     private var onlineDiscoveryCard: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Online eslesme")
-                .font(.system(size: 32, weight: .black, design: .rounded))
-                .foregroundStyle(.white)
+        VStack(alignment: .center, spacing: 18) {
+            VStack(alignment: .center, spacing: 12) {
+                Text("Online eslesme")
+                    .font(.system(size: 34, weight: .black, design: .rounded))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.52, green: 0.21, blue: 0.97),
+                                Color(red: 0.98, green: 0.30, blue: 0.66)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
 
-            Text("Sadece su anda aktif olan kisilerle esles. Once profil ve mesaj, sonra istersen sesli gorusme.")
-                .font(.system(size: 16, weight: .medium, design: .rounded))
-                .foregroundStyle(.white.opacity(0.78))
-                .fixedSize(horizontal: false, vertical: true)
+                Text(discoveryDescription)
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .lineSpacing(2)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 320)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 18) {
                 discoveryBullet(
-                    icon: "person.crop.square",
+                    icon: "camera.fill",
                     title: "Photo-first",
                     detail: "Eslesme geldiginde kamera degil, fotograf ve kisa profil acilir."
                 )
                 discoveryBullet(
-                    icon: "message.fill",
+                    icon: "bubble.left",
                     title: "Direkt chat",
                     detail: "Eslesme aninda yazismaya baslayabilirsiniz."
                 )
@@ -629,7 +654,22 @@ struct MainCameraView: View {
                     title: "Opsiyonel voice",
                     detail: "Istersen sonradan ucretsiz sesli gorusme istegi gonder."
                 )
+                discoveryBullet(
+                    icon: "video.fill",
+                    title: "Video gorusme",
+                    detail: "Text veya voice sonrasinda istersen video daveti baslat."
+                )
             }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 22)
+            .background(Color.white.opacity(0.78))
+            .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 30, style: .continuous)
+                    .stroke(Color.white.opacity(0.88), lineWidth: 1)
+            )
+            .shadow(color: Color(red: 0.78, green: 0.70, blue: 0.88).opacity(0.18), radius: 26, x: 0, y: 12)
+            .padding(.bottom, 82)
 
             Button {
                 if socketService.isSearching {
@@ -639,59 +679,93 @@ struct MainCameraView: View {
                 }
             } label: {
                 HStack(spacing: 10) {
-                    Image(systemName: socketService.isSearching ? "xmark.circle.fill" : "sparkles")
+                    Image(systemName: socketService.isSearching ? "xmark.circle.fill" : "heart.fill")
                         .font(.system(size: 16, weight: .bold))
-                    Text(socketService.isSearching ? "Aramayi durdur" : "Online kisi bul")
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                    Text(socketService.isSearching ? "Aramayi Durdur" : "Online Kisi Bul")
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
                 }
-                .foregroundStyle(.black)
+                .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .padding(.vertical, 18)
+                .background(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.64, green: 0.25, blue: 0.98),
+                            Color(red: 0.98, green: 0.33, blue: 0.68),
+                            Color(red: 0.40, green: 0.39, blue: 0.94)
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    ),
+                    in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                )
+                .shadow(color: Color(red: 0.70, green: 0.33, blue: 0.92).opacity(0.26), radius: 20, x: 0, y: 10)
             }
             .buttonStyle(.plain)
+
+            HStack(spacing: 14) {
+                Label("Guvenli ve gizli", systemImage: "lock.fill")
+                Label("Aninda eslesme", systemImage: "bolt.fill")
+            }
+            .font(.system(size: 13, weight: .semibold, design: .rounded))
+            .foregroundStyle(Color(red: 0.61, green: 0.60, blue: 0.68))
+            .frame(maxWidth: .infinity, alignment: .center)
         }
-        .padding(24)
-        .background(.ultraThinMaterial)
-        .background(Color.white.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 32, style: .continuous)
-                .stroke(Color.white.opacity(0.16), lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.24), radius: 24, x: 0, y: 12)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 10)
     }
 
     private func discoveryBullet(icon: String, title: String, detail: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 34, height: 34)
-                .background(Color.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .foregroundStyle(Color(red: 0.72, green: 0.28, blue: 0.96))
+                .frame(width: 42, height: 42)
+                .background(Color(red: 0.97, green: 0.89, blue: 0.98), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.system(size: 15, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color(red: 0.25, green: 0.27, blue: 0.35))
                 Text(detail)
                     .font(.system(size: 13, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.72))
+                    .foregroundStyle(Color(red: 0.45, green: 0.47, blue: 0.56))
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    private var discoveryDescription: AttributedString {
+        var text = AttributedString("Sadece su anda aktif olan kisilerle esles. Once profil ve mesaj, sonra istersen sesli veya video gorusme.")
+        text.foregroundColor = UIColor(
+            red: 0.35,
+            green: 0.37,
+            blue: 0.46,
+            alpha: 1
+        )
+
+        if let range = text.range(of: "sonra istersen") {
+            text[range].foregroundColor = UIColor(
+                red: 0.98,
+                green: 0.30,
+                blue: 0.66,
+                alpha: 1
+            )
+        }
+
+        return text
     }
 
     private var topOverlay: some View {
         HStack(alignment: .center) {
             Text("MAX'I AI")
                 .font(.system(size: 12, weight: .black, design: .rounded))
-                .foregroundStyle(.white.opacity(0.88))
+                .foregroundStyle(Color(red: 0.41, green: 0.36, blue: 0.62))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .background(.ultraThinMaterial)
-                .background(Color.black.opacity(0.18))
+                .background(Color.white.opacity(0.78))
                 .clipShape(Capsule())
+                .overlay(Capsule().stroke(Color.white.opacity(0.9), lineWidth: 1))
 
             Spacer(minLength: 8)
 
@@ -707,13 +781,13 @@ struct MainCameraView: View {
                         .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(
                             LinearGradient(
-                                colors: [Color.white, Color.gray.opacity(0.72)],
+                                colors: [Color(red: 0.57, green: 0.34, blue: 0.94), Color(red: 0.95, green: 0.42, blue: 0.70)],
                                 startPoint: .top,
                                 endPoint: .bottom
                             )
                         )
                         .frame(width: 32, height: 32)
-                        .background(Color.white.opacity(0.08))
+                        .background(Color.white.opacity(0.8))
                         .clipShape(Circle())
                 }
                 .buttonStyle(.plain)
@@ -731,14 +805,14 @@ struct MainCameraView: View {
                             .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(
                                 LinearGradient(
-                                    colors: [Color.white, Color.gray.opacity(0.7)],
+                                    colors: [Color(red: 0.57, green: 0.34, blue: 0.94), Color(red: 0.95, green: 0.42, blue: 0.70)],
                                     startPoint: .top,
                                     endPoint: .bottom
                                 )
                             )
                         Text("\(appUserStore.currentUser?.gems ?? 0)")
                             .font(.system(size: 13, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color(red: 0.34, green: 0.33, blue: 0.42))
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 8)
@@ -770,7 +844,7 @@ struct MainCameraView: View {
                                         .padding(7)
                                         .foregroundStyle(
                                             LinearGradient(
-                                                colors: [Color.white, Color.gray.opacity(0.72)],
+                                                colors: [Color(red: 0.57, green: 0.34, blue: 0.94), Color(red: 0.95, green: 0.42, blue: 0.70)],
                                                 startPoint: .top,
                                                 endPoint: .bottom
                                             )
@@ -789,13 +863,12 @@ struct MainCameraView: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
-            .background(.ultraThinMaterial)
-            .background(Color.black.opacity(0.16))
+            .background(Color.white.opacity(0.74))
             .clipShape(Capsule())
             .overlay(
-                Capsule().stroke(Color.white.opacity(0.35), lineWidth: 0.5)
+                Capsule().stroke(Color.white.opacity(0.92), lineWidth: 1)
             )
-            .shadow(color: Color.black.opacity(0.16), radius: 10, x: 0, y: 4)
+            .shadow(color: Color(red: 0.74, green: 0.70, blue: 0.86).opacity(0.18), radius: 14, x: 0, y: 6)
         }
         .padding(.top, 2)
     }
@@ -876,16 +949,8 @@ struct MainCameraView: View {
             genderSelectionButton
             countrySelectionButton
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(.ultraThinMaterial)
-        .background(Color.black.opacity(0.18))
-        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .stroke(Color.white.opacity(0.28), lineWidth: 0.5)
-        )
-        .shadow(color: Color.black.opacity(0.22), radius: 16, x: 0, y: 6)
+        .padding(.horizontal, 4)
+        .padding(.top, 2)
     }
 
     private var genderSelectionButton: some View {
@@ -898,20 +963,20 @@ struct MainCameraView: View {
         } label: {
             HStack(spacing: 10) {
                 PremiumGenderIcon()
-                    .shadow(color: selectedGender != .all ? Color.cyan.opacity(0.65) : .clear, radius: 10)
+                    .shadow(color: selectedGender != .all ? Color(red: 0.80, green: 0.45, blue: 0.95).opacity(0.35) : .clear, radius: 10)
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Cinsiyet")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color(red: 0.29, green: 0.30, blue: 0.38))
                     if selectedGender == .female {
                         HStack(spacing: 4) {
                             Image(systemName: "diamond.fill")
                                 .font(.system(size: 9, weight: .bold))
-                                .foregroundStyle(.white.opacity(0.9))
+                                .foregroundStyle(Color(red: 0.95, green: 0.42, blue: 0.70))
                             Text("8")
                                 .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.white.opacity(0.72))
+                                .foregroundStyle(Color(red: 0.69, green: 0.59, blue: 0.76))
                         }
                     }
                 }
@@ -920,16 +985,15 @@ struct MainCameraView: View {
 
                 Image(systemName: "chevron.up")
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.88))
+                    .foregroundStyle(Color(red: 0.58, green: 0.57, blue: 0.67))
             }
             .padding(.horizontal, 12)
-            .frame(height: 50)
-            .background(.ultraThinMaterial)
-            .background(Color.black.opacity(0.20))
+            .frame(height: 48)
+            .background(Color.white.opacity(0.82))
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(selectedGender != .all ? Color.cyan.opacity(0.6) : Color.white.opacity(0.22), lineWidth: 0.7)
+                    .stroke(selectedGender != .all ? Color(red: 0.91, green: 0.51, blue: 0.84).opacity(0.7) : Color.white.opacity(0.92), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -946,23 +1010,23 @@ struct MainCameraView: View {
             HStack(spacing: 10) {
                 Image(systemName: "globe.europe.africa.fill")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .shadow(color: selectedCountry != "Global" ? Color.cyan.opacity(0.65) : .clear, radius: 10)
+                    .foregroundStyle(Color(red: 0.66, green: 0.32, blue: 0.96))
+                    .shadow(color: selectedCountry != "Global" ? Color(red: 0.80, green: 0.45, blue: 0.95).opacity(0.35) : .clear, radius: 10)
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(selectedCountry)
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color(red: 0.29, green: 0.30, blue: 0.38))
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                     if selectedCountry != "Global" {
                         HStack(spacing: 4) {
                             Image(systemName: "diamond.fill")
                                 .font(.system(size: 9, weight: .bold))
-                                .foregroundStyle(.white.opacity(0.9))
+                                .foregroundStyle(Color(red: 0.95, green: 0.42, blue: 0.70))
                             Text("4")
                                 .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.white.opacity(0.72))
+                                .foregroundStyle(Color(red: 0.69, green: 0.59, blue: 0.76))
                         }
                     }
                 }
@@ -971,16 +1035,15 @@ struct MainCameraView: View {
 
                 Image(systemName: "chevron.up")
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.88))
+                    .foregroundStyle(Color(red: 0.58, green: 0.57, blue: 0.67))
             }
             .padding(.horizontal, 12)
-            .frame(height: 50)
-            .background(.ultraThinMaterial)
-            .background(Color.black.opacity(0.20))
+            .frame(height: 48)
+            .background(Color.white.opacity(0.82))
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(selectedCountry != "Global" ? Color.cyan.opacity(0.6) : Color.white.opacity(0.22), lineWidth: 0.7)
+                    .stroke(selectedCountry != "Global" ? Color(red: 0.91, green: 0.51, blue: 0.84).opacity(0.7) : Color.white.opacity(0.92), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)

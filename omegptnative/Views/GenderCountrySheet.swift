@@ -413,28 +413,17 @@ struct MatchRadarView: View {
     let isIntensified: Bool
 
     var body: some View {
-        VStack(spacing: 14) {
-            ZStack {
-                ForEach(0..<4, id: \.self) { index in
-                    RadarRing(
-                        index: index,
-                        isIntensified: isIntensified
-                    )
-                }
-
-                SwipeArrowIndicator(isIntensified: isIntensified)
+        ZStack {
+            ForEach(0..<4, id: \.self) { index in
+                RadarRing(
+                    index: index,
+                    isIntensified: isIntensified
+                )
             }
-            .frame(width: 230, height: 230)
 
-            Text("Kaydırarak Eşleş")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.95))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(.ultraThinMaterial)
-                .background(Color.black.opacity(0.22))
-                .clipShape(Capsule())
+            SwipeArrowIndicator(isIntensified: isIntensified)
         }
+        .frame(width: 230, height: 230)
         .animation(.easeInOut(duration: 0.2), value: isIntensified)
     }
 }
