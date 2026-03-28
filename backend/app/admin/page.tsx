@@ -34,8 +34,12 @@ export default function AdminDashboard() {
   // Sayfa yüklendiğinde daha önce giriş yapılmış mı kontrol et
   useEffect(() => {
     const savedAuth = localStorage.getItem("adminAuth");
+    const savedPassword = localStorage.getItem("adminPanelPassword") || "";
     if (savedAuth === "true") {
       setIsLoggedIn(true);
+    }
+    if (savedPassword) {
+      setPassword(savedPassword);
     }
   }, []);
 
@@ -43,21 +47,30 @@ export default function AdminDashboard() {
     if (password === "admin123") {
       setIsLoggedIn(true);
       localStorage.setItem("adminAuth", "true"); // Şifreyi hatırla
+      localStorage.setItem("adminPanelPassword", password);
     } else {
       alert("Hatalı Güvenlik Kodu!");
     }
   };  
+
+  const adminHeaders = (extra: HeadersInit = {}) => {
+    const savedPassword = localStorage.getItem("adminPanelPassword") || password;
+    return {
+      ...extra,
+      "x-admin-password": savedPassword,
+    };
+  };
 
 
   // --- API İŞLEMLERİ ---
   const fetchData = async () => {
     try {
       const [userRes, repRes, banRes, statRes, matchRes] = await Promise.all([
-        fetch(`${BACKEND_URL}/api/admin/active-users`),
-        fetch(`${BACKEND_URL}/api/reports`),
-        fetch(`${BACKEND_URL}/api/bans`),
-        fetch(`${BACKEND_URL}/api/admin/stats`),
-        fetch(`${BACKEND_URL}/api/admin/active-matches`)
+        fetch(`${BACKEND_URL}/api/admin/active-users`, { headers: adminHeaders() }),
+        fetch(`${BACKEND_URL}/api/reports`, { headers: adminHeaders() }),
+        fetch(`${BACKEND_URL}/api/bans`, { headers: adminHeaders() }),
+        fetch(`${BACKEND_URL}/api/admin/stats`, { headers: adminHeaders() }),
+        fetch(`${BACKEND_URL}/api/admin/active-matches`, { headers: adminHeaders() })
       ]);
 
       if (userRes.ok) setActiveUsers(await userRes.json());
@@ -74,7 +87,7 @@ export default function AdminDashboard() {
   // Tüm kayıtlı kullanıcıları getiren fonksiyon
   const fetchAllUsers = async () => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/admin/all-users`);
+      const res = await fetch(`${BACKEND_URL}/api/admin/all-users`, { headers: adminHeaders() });
       if (res.ok) setAllUsers(await res.json());
     } catch (err) {
       console.error("Kullanıcı listesi çekilemedi:", err);
@@ -89,7 +102,7 @@ export default function AdminDashboard() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/admin/update-user`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: adminHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ 
           userId: editUserModal._id, 
           updateData: {
@@ -120,7 +133,7 @@ export default function AdminDashboard() {
     try {
         await fetch(`${BACKEND_URL}/api/admin/kill-match`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: adminHeaders({ "Content-Type": "application/json" }),
             body: JSON.stringify({ matchId, user1Id, user2Id })
         });
         fetchData();
@@ -137,7 +150,7 @@ export default function AdminDashboard() {
     try {
         await fetch(`${BACKEND_URL}/api/ban-user`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: adminHeaders({ "Content-Type": "application/json" }),
             body: JSON.stringify({ reportedId: id, ip: ip, reason: reason }) 
         });
         alert("Kullanıcı 24 saat yasaklandı ve sistemden atıldı.");
@@ -150,7 +163,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (selectedUser) {
-      fetch(`${BACKEND_URL}/api/admin/user-logs/${selectedUser.id}`)
+      fetch(`${BACKEND_URL}/api/admin/user-logs/${selectedUser.id}`, { headers: adminHeaders() })
         .then(res => res.ok ? res.json() : [])
         .then(data => setUserHistory(data))
         .catch(err => console.error("Geçmiş yüklenemedi:", err));

@@ -12,7 +12,7 @@ const Follow = require('./models/Follow');
 const Purchase = require('./models/Purchase');
 const { signAccessToken } = require('./utils/jwt');
 const { requireAuth, requireSelfOrAdmin } = require('./middlewares/auth');
-const { requireAdmin } = require('./middlewares/admin');
+const { requireAdminAccess } = require('./middlewares/admin');
 const { authRateLimit, userActionRateLimit, adminRateLimit } = require('./middlewares/rateLimit');
 const { socketAuthMiddleware } = require('./middlewares/socketAuth');
 const { consumeSocketEvent } = require('./utils/socketRateLimiter');
@@ -1693,7 +1693,7 @@ app.post('/api/store/verify-purchase', requireAuth, userActionRateLimit, async (
       return res.status(400).json({ error: "Geçersiz Product ID!" });
     }
 
-    if (!transactionId || typeof transactionId !== 'string' || !receiptData || typeof receiptData !== 'string' || !platform) {
+    if (!transactionId || typeof transactionId !== 'string' || !platform || typeof platform !== 'string') {
       return res.status(400).json({ error: "Geçersiz işlem bilgisi." });
     }
 
@@ -1753,21 +1753,21 @@ app.post('/api/store/verify-purchase', requireAuth, userActionRateLimit, async (
 // --------------------------------------------------
 
 // --- ADMIN API ---
-app.get('/api/admin/active-users', requireAuth, requireAdmin, adminRateLimit, (req, res) => res.json(Array.from(userDetails.values())));
-app.get('/api/reports', requireAuth, requireAdmin, adminRateLimit, async (req, res) => res.json(await Report.find().sort({ date: -1 }).limit(50)));
-app.delete('/api/reports/:id', requireAuth, requireAdmin, adminRateLimit, async (req, res) => { await Report.findByIdAndDelete(req.params.id); res.json({ success: true }); });
+app.get('/api/admin/active-users', requireAdminAccess, adminRateLimit, (req, res) => res.json(Array.from(userDetails.values())));
+app.get('/api/reports', requireAdminAccess, adminRateLimit, async (req, res) => res.json(await Report.find().sort({ date: -1 }).limit(50)));
+app.delete('/api/reports/:id', requireAdminAccess, adminRateLimit, async (req, res) => { await Report.findByIdAndDelete(req.params.id); res.json({ success: true }); });
 
-app.get('/api/bans', requireAuth, requireAdmin, adminRateLimit, async (req, res) => {
+app.get('/api/bans', requireAdminAccess, adminRateLimit, async (req, res) => {
   const activeBans = await Ban.find({ expireAt: { $gt: new Date() } });
   res.json(activeBans);
 });
 
-app.delete('/api/bans/:ip', requireAuth, requireAdmin, adminRateLimit, async (req, res) => { await Ban.findOneAndDelete({ ip: req.params.ip }); res.json({ success: true }); });
-app.get('/api/admin/stats', requireAuth, requireAdmin, adminRateLimit, async (req, res) => {
+app.delete('/api/bans/:ip', requireAdminAccess, adminRateLimit, async (req, res) => { await Ban.findOneAndDelete({ ip: req.params.ip }); res.json({ success: true }); });
+app.get('/api/admin/stats', requireAdminAccess, adminRateLimit, async (req, res) => {
   const totalActiveBans = await Ban.countDocuments({ expireAt: { $gt: new Date() } });
   res.json({ activeUsers: userDetails.size, totalBans: totalActiveBans, pendingReports: await Report.countDocuments(), totalMatchesToday: 0 });
 });
-app.get('/api/admin/active-matches', requireAuth, requireAdmin, adminRateLimit, (req, res) => res.json(global.liveMatches ? Array.from(global.liveMatches.values()) : []));
+app.get('/api/admin/active-matches', requireAdminAccess, adminRateLimit, (req, res) => res.json(global.liveMatches ? Array.from(global.liveMatches.values()) : []));
 
 app.post('/api/users/follow', requireAuth, userActionRateLimit, async (req, res) => {
   console.log('FOLLOW req.body:', req.body);
@@ -2047,7 +2047,7 @@ app.get('/api/users/:userId/history', requireAuth, requireSelfOrAdmin('params', 
   }
 });
 
-app.post('/api/ban-user', requireAuth, requireAdmin, adminRateLimit, async (req, res) => {
+app.post('/api/ban-user', requireAdminAccess, adminRateLimit, async (req, res) => {
   const { ip, reportedId, reason } = req.body;
   
   try {
@@ -2089,14 +2089,14 @@ app.post('/api/ban-user', requireAuth, requireAdmin, adminRateLimit, async (req,
 });
 
 
-app.post('/api/admin/kill-match', requireAuth, requireAdmin, adminRateLimit, (req, res) => {
+app.post('/api/admin/kill-match', requireAdminAccess, adminRateLimit, (req, res) => {
     const { matchId, user1Id, user2Id } = req.body;
     io.to(user1Id).emit('partner_left_auto_next'); io.to(user2Id).emit('partner_left_auto_next');
     if (global.liveMatches) global.liveMatches.delete(matchId);
     res.json({ success: true });
 });
 
-app.get('/api/admin/all-users', requireAuth, requireAdmin, adminRateLimit, async (req, res) => {
+app.get('/api/admin/all-users', requireAdminAccess, adminRateLimit, async (req, res) => {
   try {
     const users = await User.find().sort({ trustScore: 1, createdAt: -1 });
     res.json(users);
@@ -2105,13 +2105,32 @@ app.get('/api/admin/all-users', requireAuth, requireAdmin, adminRateLimit, async
   }
 });
 
-app.post('/api/admin/update-user', requireAuth, requireAdmin, adminRateLimit, async (req, res) => {
+app.post('/api/admin/update-user', requireAdminAccess, adminRateLimit, async (req, res) => {
   const { userId, updateData } = req.body;
   try {
     await User.findByIdAndUpdate(userId, updateData);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: "Güncelleme hatası" });
+  }
+});
+
+app.get('/api/admin/user-logs/:userId', requireAdminAccess, adminRateLimit, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const logs = await Log.find({
+      $or: [
+        { userId },
+        { targetId: userId },
+      ],
+    })
+      .sort({ date: -1 })
+      .limit(100);
+
+    res.json(logs);
+  } catch (err) {
+    console.error("Admin user logs hatası:", err);
+    res.status(500).json({ error: "Kullanici loglari getirilemedi" });
   }
 });
 
