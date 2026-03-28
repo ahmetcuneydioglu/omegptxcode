@@ -11,8 +11,8 @@ const {
 const purchaseVerificationSchema = z.object({
   platform: z.enum(['ios', 'android']),
   productId: z.string().min(1).max(100),
-  transactionId: z.string().min(3).max(255),
-  receiptData: z.string().min(10).optional(),
+  transactionId: z.string().min(1).max(255),
+  receiptData: z.string().optional(),
 });
 
 function getApplePrivateKey() {
