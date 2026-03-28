@@ -7,6 +7,7 @@ const BACKEND_URL = "https://videochat-1qxi.onrender.com";
 export default function AdminDashboard() {
   const [password, setPassword] = useState("");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [adminError, setAdminError] = useState("");
   
   // Veri State'leri
   const [activeUsers, setActiveUsers] = useState<any[]>([]);
@@ -44,13 +45,15 @@ export default function AdminDashboard() {
   }, []);
 
   const handleLogin = () => {
-    if (password === "admin123") {
-      setIsLoggedIn(true);
-      localStorage.setItem("adminAuth", "true"); // Şifreyi hatırla
-      localStorage.setItem("adminPanelPassword", password);
-    } else {
-      alert("Hatalı Güvenlik Kodu!");
+    const trimmedPassword = password.trim();
+    if (!trimmedPassword) {
+      alert("Lutfen admin sifresini gir.");
+      return;
     }
+    setAdminError("");
+    setIsLoggedIn(true);
+    localStorage.setItem("adminAuth", "true");
+    localStorage.setItem("adminPanelPassword", trimmedPassword);
   };  
 
   const adminHeaders = (extra: HeadersInit = {}) => {
@@ -59,6 +62,20 @@ export default function AdminDashboard() {
       ...extra,
       "x-admin-password": savedPassword,
     };
+  };
+
+  const handleAdminAuthFailure = async (response: Response) => {
+    let backendMessage = "";
+    try {
+      const json = await response.json();
+      backendMessage = json?.error || "";
+    } catch {}
+
+    const message = backendMessage || "Admin yetkilendirmesi basarisiz. Panel sifresi ile backend sifresi ayni olmayabilir.";
+    setAdminError(message);
+    setIsLoggedIn(false);
+    localStorage.removeItem("adminAuth");
+    localStorage.removeItem("adminPanelPassword");
   };
 
 
@@ -73,14 +90,23 @@ export default function AdminDashboard() {
         fetch(`${BACKEND_URL}/api/admin/active-matches`, { headers: adminHeaders() })
       ]);
 
+      const responses = [userRes, repRes, banRes, statRes, matchRes];
+      const authFailure = responses.find((response) => response.status === 401 || response.status === 403);
+      if (authFailure) {
+        await handleAdminAuthFailure(authFailure);
+        return;
+      }
+
       if (userRes.ok) setActiveUsers(await userRes.json());
       if (repRes.ok) setReports(await repRes.json());
       if (banRes.ok) setBans(await banRes.json());
       if (statRes.ok) setStats(await statRes.json());
       if (matchRes.ok) setActiveMatches(await matchRes.json());
+      setAdminError("");
 
     } catch (err) {
       console.error("Veri senkronizasyon hatası:", err);
+      setAdminError("Admin verileri cekilemedi. Backend servis baglantisini kontrol et.");
     }
   };
 
@@ -88,9 +114,17 @@ export default function AdminDashboard() {
   const fetchAllUsers = async () => {
     try {
       const res = await fetch(`${BACKEND_URL}/api/admin/all-users`, { headers: adminHeaders() });
-      if (res.ok) setAllUsers(await res.json());
+      if (res.status === 401 || res.status === 403) {
+        await handleAdminAuthFailure(res);
+        return;
+      }
+      if (res.ok) {
+        setAllUsers(await res.json());
+        setAdminError("");
+      }
     } catch (err) {
       console.error("Kullanıcı listesi çekilemedi:", err);
+      setAdminError("Kayitli kullanicilar getirilemedi.");
     }
   };
 
@@ -113,6 +147,11 @@ export default function AdminDashboard() {
           } 
         })
       });
+
+      if (res.status === 401 || res.status === 403) {
+        await handleAdminAuthFailure(res);
+        return;
+      }
 
       if (res.ok) {
         alert("Kullanıcı başarıyla güncellendi!");
@@ -164,7 +203,13 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (selectedUser) {
       fetch(`${BACKEND_URL}/api/admin/user-logs/${selectedUser.id}`, { headers: adminHeaders() })
-        .then(res => res.ok ? res.json() : [])
+        .then(async (res) => {
+          if (res.status === 401 || res.status === 403) {
+            await handleAdminAuthFailure(res);
+            return [];
+          }
+          return res.ok ? res.json() : [];
+        })
         .then(data => setUserHistory(data))
         .catch(err => console.error("Geçmiş yüklenemedi:", err));
     }
@@ -199,6 +244,11 @@ export default function AdminDashboard() {
           </div>
 
           <div className="space-y-4">
+            {adminError ? (
+              <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-xs font-semibold text-red-200">
+                {adminError}
+              </div>
+            ) : null}
             <input 
               type="password" 
               placeholder="••••••" 
