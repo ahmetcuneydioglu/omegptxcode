@@ -200,18 +200,18 @@ struct PrivateCallLoadingOverlay: View {
     private var title: String {
         switch phase {
         case .checking:
-            return mode == .voice ? "Sesli istek kontrol ediliyor..." : "Kontrol ediliyor..."
+            return mode == .voice ? "Sesli istek kontrol ediliyor..." : "Video istegi kontrol ediliyor..."
         case .calling:
-            return mode == .voice ? "Sesli istek gonderiliyor..." : "Baglanti kuruluyor..."
+            return mode == .voice ? "Sesli istek gonderiliyor..." : "Video daveti gonderiliyor..."
         }
     }
 
     private var subtitle: String {
         switch phase {
         case .checking:
-            return mode == .voice ? "Eslesen kisi su an sesli gorusmeye uygun mu bakiyoruz." : "Kullanici uygun mu diye kontrol ediyoruz."
+            return mode == .voice ? "Eslesen kisi su an sesli gorusmeye uygun mu bakiyoruz." : "Eslestigin kisinin su an video icin uygun olup olmadigina bakiyoruz."
         case .calling:
-            return mode == .voice ? "Sesli gorusme istegi karsi tarafa iletiliyor." : "Arama istegi karsi tarafa iletiliyor."
+            return mode == .voice ? "Sesli gorusme istegi karsi tarafa iletiliyor." : "Video daveti karsi tarafa iletiliyor."
         }
     }
 }

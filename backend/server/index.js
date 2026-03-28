@@ -156,6 +156,7 @@ const activeMatches = new Map();
 const userDetails = new Map();
 const pendingPrivateCalls = new Map();
 const pendingVoiceCalls = new Map();
+const pendingVideoCalls = new Map();
 const matchmakingReservations = new Set();
 const connectedUsers = new Map();
 const socketToDbUser = new Map();
@@ -351,6 +352,17 @@ const clearPendingVoiceCall = (socketId) => {
   pendingVoiceCalls.delete(socketId);
   if (pendingCall.partnerSocketId) {
     pendingVoiceCalls.delete(pendingCall.partnerSocketId);
+  }
+
+  return pendingCall;
+};
+const clearPendingVideoCall = (socketId) => {
+  const pendingCall = pendingVideoCalls.get(socketId);
+  if (!pendingCall) return null;
+
+  pendingVideoCalls.delete(socketId);
+  if (pendingCall.partnerSocketId) {
+    pendingVideoCalls.delete(pendingCall.partnerSocketId);
   }
 
   return pendingCall;
@@ -900,6 +912,53 @@ io.on('connection', async (socket) => {
     });
   });
 
+  socket.on('video_request', async ({ targetId } = {}) => {
+    if (!consumeSocketEvent(socket, 'video_request', {
+      limit: getSocketRateLimit(socket, 6, 3),
+      windowMs: 60_000
+    })) {
+      return socket.emit('error_message', { type: 'RATE_LIMIT', message: 'Cok fazla video gorusme istegi gonderildi.' });
+    }
+
+    const targetSocketId = typeof targetId === 'string' ? targetId.trim() : '';
+    if (!targetSocketId) {
+      return socket.emit('target_unavailable');
+    }
+
+    const verifiedPartnerId = getVerifiedPartnerId(socket, targetSocketId);
+    if (!verifiedPartnerId || verifiedPartnerId !== targetSocketId) {
+      return socket.emit('target_unavailable');
+    }
+
+    if (
+      pendingVideoCalls.has(socket.id) ||
+      pendingVideoCalls.has(targetSocketId) ||
+      pendingVoiceCalls.has(socket.id) ||
+      pendingVoiceCalls.has(targetSocketId)
+    ) {
+      return socket.emit('target_unavailable');
+    }
+
+    const callerDbId = getDbIdBySocketId(socket.id);
+    const callerUser = isValidObjectId(callerDbId) ? await User.findById(callerDbId) : null;
+
+    pendingVideoCalls.set(socket.id, {
+      type: 'outgoing',
+      partnerSocketId: targetSocketId
+    });
+    pendingVideoCalls.set(targetSocketId, {
+      type: 'incoming',
+      partnerSocketId: socket.id
+    });
+
+    io.to(targetSocketId).emit('incoming_video_call', {
+      callerId: socket.id,
+      callerName: callerUser?.name || 'Misafir',
+      callerAvatar: callerUser?.avatar || null,
+      mode: 'video'
+    });
+  });
+
   socket.on('voice_accepted', ({ callerId } = {}) => {
     const pendingCall = pendingVoiceCalls.get(socket.id);
     if (!pendingCall || pendingCall.type !== 'incoming') return;
@@ -923,6 +982,29 @@ io.on('connection', async (socket) => {
     });
   });
 
+  socket.on('video_accepted', ({ callerId } = {}) => {
+    const pendingCall = pendingVideoCalls.get(socket.id);
+    if (!pendingCall || pendingCall.type !== 'incoming') return;
+
+    const callerSocketId = pendingCall.partnerSocketId;
+    if (callerId && String(callerId) !== String(callerSocketId)) return;
+    if (getVerifiedPartnerId(socket, callerSocketId) !== callerSocketId) {
+      clearPendingVideoCall(socket.id);
+      return io.to(callerSocketId).emit('target_unavailable');
+    }
+
+    clearPendingVideoCall(socket.id);
+
+    io.to(callerSocketId).emit('video_call_started', {
+      partnerId: socket.id,
+      initiator: true
+    });
+    io.to(socket.id).emit('video_call_started', {
+      partnerId: callerSocketId,
+      initiator: false
+    });
+  });
+
   socket.on('voice_rejected', ({ callerId } = {}) => {
     const pendingCall = pendingVoiceCalls.get(socket.id);
     if (!pendingCall || pendingCall.type !== 'incoming') return;
@@ -932,6 +1014,17 @@ io.on('connection', async (socket) => {
 
     clearPendingVoiceCall(socket.id);
     io.to(callerSocketId).emit('voice_rejected');
+  });
+
+  socket.on('video_rejected', ({ callerId } = {}) => {
+    const pendingCall = pendingVideoCalls.get(socket.id);
+    if (!pendingCall || pendingCall.type !== 'incoming') return;
+
+    const callerSocketId = pendingCall.partnerSocketId;
+    if (callerId && String(callerId) !== String(callerSocketId)) return;
+
+    clearPendingVideoCall(socket.id);
+    io.to(callerSocketId).emit('video_rejected');
   });
 
   socket.on('cancel_voice_call', ({ targetId } = {}) => {
@@ -947,11 +1040,33 @@ io.on('connection', async (socket) => {
     });
   });
 
+  socket.on('cancel_video_call', ({ targetId } = {}) => {
+    const pendingCall = pendingVideoCalls.get(socket.id);
+    if (!pendingCall) return;
+
+    const partnerSocketId = pendingCall.partnerSocketId;
+    if (targetId && String(targetId) !== String(partnerSocketId)) return;
+
+    clearPendingVideoCall(socket.id);
+    io.to(partnerSocketId).emit('video_call_cancelled', {
+      callerId: socket.id
+    });
+  });
+
   socket.on('voice_ended', ({ targetId } = {}) => {
     const partnerSocketId = getVerifiedPartnerId(socket, targetId);
     if (!partnerSocketId) return;
 
     io.to(partnerSocketId).emit('voice_call_ended', {
+      partnerId: socket.id
+    });
+  });
+
+  socket.on('video_ended', ({ targetId } = {}) => {
+    const partnerSocketId = getVerifiedPartnerId(socket, targetId);
+    if (!partnerSocketId) return;
+
+    io.to(partnerSocketId).emit('video_call_ended', {
       partnerId: socket.id
     });
   });
@@ -1259,6 +1374,12 @@ io.on('connection', async (socket) => {
         callerId: socket.id
       });
     }
+    const pendingVideoCall = clearPendingVideoCall(socket.id);
+    if (pendingVideoCall?.partnerSocketId) {
+      io.to(pendingVideoCall.partnerSocketId).emit('video_call_cancelled', {
+        callerId: socket.id
+      });
+    }
 
     const partnerId = activeMatches.get(socket.id);
     const matchId = getMatchId(socket.id, partnerId);
@@ -1294,6 +1415,12 @@ io.on('connection', async (socket) => {
     const pendingVoiceCall = clearPendingVoiceCall(socket.id);
     if (pendingVoiceCall?.partnerSocketId) {
       io.to(pendingVoiceCall.partnerSocketId).emit('voice_call_cancelled', {
+        callerId: socket.id
+      });
+    }
+    const pendingVideoCall = clearPendingVideoCall(socket.id);
+    if (pendingVideoCall?.partnerSocketId) {
+      io.to(pendingVideoCall.partnerSocketId).emit('video_call_cancelled', {
         callerId: socket.id
       });
     }
@@ -1371,6 +1498,12 @@ io.on('connection', async (socket) => {
     const pendingVoiceCall = clearPendingVoiceCall(socket.id);
     if (pendingVoiceCall?.partnerSocketId) {
       io.to(pendingVoiceCall.partnerSocketId).emit('voice_call_cancelled', {
+        callerId: socket.id
+      });
+    }
+    const pendingVideoCall = clearPendingVideoCall(socket.id);
+    if (pendingVideoCall?.partnerSocketId) {
+      io.to(pendingVideoCall.partnerSocketId).emit('video_call_cancelled', {
         callerId: socket.id
       });
     }

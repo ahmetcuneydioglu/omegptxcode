@@ -46,8 +46,7 @@ struct ContentView: View {
             .animation(.easeInOut(duration: 0.24), value: socketService.privateCallNotice)
             .allowsHitTesting(false)
 
-            if let phase = socketService.outgoingPrivateCallPhase,
-               (socketService.activePartnerId == nil || socketService.outgoingCallMode == .voice) {
+            if let phase = socketService.outgoingPrivateCallPhase {
                 PrivateCallLoadingOverlay(
                     phase: phase,
                     mode: socketService.outgoingCallMode ?? .video,

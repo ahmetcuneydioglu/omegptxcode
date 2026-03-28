@@ -727,6 +727,15 @@ struct OnlineMatchChatView: View {
                     action: toggleVoiceCall
                 )
 
+                actionButton(
+                    icon: "video.fill",
+                    background: socketService.sessionStage == .textChat ? Color.white : Color.white.opacity(0.55),
+                    foreground: primaryText,
+                    outlined: socketService.sessionStage == .textChat,
+                    action: startVideoCall
+                )
+                .disabled(socketService.sessionStage != .textChat)
+
                 messageActionButton
 
                 actionButton(
@@ -1128,6 +1137,11 @@ struct OnlineMatchChatView: View {
             return
         }
         socketService.requestVoiceCall(partnerId: partnerId)
+    }
+
+    private func startVideoCall() {
+        guard socketService.sessionStage == .textChat else { return }
+        socketService.requestVideoCall(partnerId: partnerId)
     }
 
     private func sendMessage() {

@@ -41,7 +41,7 @@ enum CallRequestMode: String, Codable, Equatable {
         case .voice:
             return "Sizi sesli ariyor..."
         case .video:
-            return "Sizi ariyor..."
+            return "Sizinle video baslatmak istiyor..."
         }
     }
 
@@ -50,7 +50,7 @@ enum CallRequestMode: String, Codable, Equatable {
         case .voice:
             return "Sese Gec"
         case .video:
-            return "Kabul Et"
+            return "Videoya Gec"
         }
     }
 }

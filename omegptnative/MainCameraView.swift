@@ -63,7 +63,7 @@ struct MainCameraView: View {
                         partnerId: activePartnerId,
                         partnerInfo: socketService.activeMatch,
                         onEnd: {
-                            socketService.endCall()
+                            socketService.endVideoCall()
                         },
                         onFlipCamera: {
                             WebRTCManager.shared.switchCamera()
