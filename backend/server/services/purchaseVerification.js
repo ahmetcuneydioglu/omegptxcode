@@ -109,13 +109,15 @@ async function fetchAppleTransaction(transactionId, environment) {
     const errorText = await response.text();
     return {
       ok: false,
+      environment,
       status: response.status,
-      body: errorText,
+      body: errorText || 'EMPTY_APPLE_ERROR_BODY',
     };
   }
 
   return {
     ok: true,
+    environment,
     data: await response.json(),
   };
 }
@@ -129,16 +131,23 @@ async function verifyApplePurchase(data) {
   }
   try {
     const productionResult = await fetchAppleTransaction(data.transactionId, 'production');
-    const result =
-      productionResult.ok || productionResult.status !== 404
-        ? productionResult
-        : await fetchAppleTransaction(data.transactionId, 'sandbox');
+    const sandboxResult = productionResult.ok
+      ? null
+      : await fetchAppleTransaction(data.transactionId, 'sandbox');
+    const result = productionResult.ok ? productionResult : sandboxResult;
 
-    if (!result.ok) {
+    if (!result?.ok) {
+      const formatLookupFailure = (lookupResult) => {
+        if (!lookupResult) return null;
+        return `${lookupResult.environment ?? 'unknown'}:${lookupResult.status ?? 'no-status'}:${lookupResult.body ?? 'NO_BODY'}`;
+      };
       return {
         isValid: false,
         reason: 'APPLE_TRANSACTION_LOOKUP_FAILED',
-        details: result.body,
+        details: [
+          formatLookupFailure(productionResult),
+          formatLookupFailure(sandboxResult),
+        ].filter(Boolean).join(' | '),
       };
     }
 
