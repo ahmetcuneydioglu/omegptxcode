@@ -71,6 +71,18 @@ function readableError(error, fallback) {
   return fallback;
 }
 
+function appleLookupFailureMessage({ environment, status, body }) {
+  const normalizedBody = typeof body === 'string' && body.trim()
+    ? body.trim()
+    : 'EMPTY_APPLE_ERROR_BODY';
+
+  if (status === 401) {
+    return `${environment}:401:APPLE_AUTH_FAILED(Check APPLE_ISSUER_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY_BASE64, and that the key is an App Store Connect In-App Purchase key)`;
+  }
+
+  return `${environment ?? 'unknown'}:${status ?? 'no-status'}:${normalizedBody}`;
+}
+
 async function fetchAppleTransaction(transactionId, environment) {
   const baseUrl =
     environment === 'sandbox'
@@ -137,16 +149,12 @@ async function verifyApplePurchase(data) {
     const result = productionResult.ok ? productionResult : sandboxResult;
 
     if (!result?.ok) {
-      const formatLookupFailure = (lookupResult) => {
-        if (!lookupResult) return null;
-        return `${lookupResult.environment ?? 'unknown'}:${lookupResult.status ?? 'no-status'}:${lookupResult.body ?? 'NO_BODY'}`;
-      };
       return {
         isValid: false,
         reason: 'APPLE_TRANSACTION_LOOKUP_FAILED',
         details: [
-          formatLookupFailure(productionResult),
-          formatLookupFailure(sandboxResult),
+          productionResult ? appleLookupFailureMessage(productionResult) : null,
+          sandboxResult ? appleLookupFailureMessage(sandboxResult) : null,
         ].filter(Boolean).join(' | '),
       };
     }
