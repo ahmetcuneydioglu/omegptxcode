@@ -19,6 +19,7 @@ const { consumeSocketEvent } = require('./utils/socketRateLimiter');
 const { followSchema, updateProfileSchema, getUserStatusSchema } = require('./utils/validators');
 const {
   getAppleVerificationConfigSummary,
+  runAppleLookupDebug,
   verifyPurchaseWithStore,
 } = require('./services/purchaseVerification');
 const { ALLOWED_ORIGINS, GOOGLE_CLIENT_IDS, MONGODB_URI, PORT, NODE_ENV } = require('./config/env');
@@ -26,7 +27,11 @@ const { ALLOWED_ORIGINS, GOOGLE_CLIENT_IDS, MONGODB_URI, PORT, NODE_ENV } = requ
 const app = express();
 app.set('trust proxy', 1);
 
-console.log('🍎 Apple verification config summary:', getAppleVerificationConfigSummary());
+const appleVerificationSummary = getAppleVerificationConfigSummary();
+console.log('🍎 Apple verification config summary:', appleVerificationSummary);
+for (const warning of appleVerificationSummary.warnings || []) {
+  console.warn(`🍎 Apple verification warning: ${warning}`);
+}
 
 const allowedOrigins = ALLOWED_ORIGINS;
 
@@ -1759,6 +1764,20 @@ app.post('/api/store/verify-purchase', requireAuth, userActionRateLimit, async (
 
 // --- ADMIN API ---
 app.get('/api/admin/active-users', requireAdminAccess, adminRateLimit, (req, res) => res.json(Array.from(userDetails.values())));
+app.get('/api/admin/apple-iap-debug', requireAdminAccess, adminRateLimit, async (req, res) => {
+  try {
+    const transactionId = String(req.query.transactionId || '').trim();
+    const debugPayload = await runAppleLookupDebug(transactionId);
+    res.json({
+      ok: true,
+      transactionIdProvided: Boolean(transactionId),
+      ...debugPayload,
+    });
+  } catch (err) {
+    console.error('Apple IAP debug hatası:', err);
+    res.status(500).json({ error: 'Apple IAP debug bilgisi getirilemedi' });
+  }
+});
 app.get('/api/reports', requireAdminAccess, adminRateLimit, async (req, res) => res.json(await Report.find().sort({ date: -1 }).limit(50)));
 app.delete('/api/reports/:id', requireAdminAccess, adminRateLimit, async (req, res) => { await Report.findByIdAndDelete(req.params.id); res.json({ success: true }); });
 

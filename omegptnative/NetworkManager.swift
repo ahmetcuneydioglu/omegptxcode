@@ -164,9 +164,20 @@ final class NetworkManager {
 
     private func extractServerMessage(from data: Data) -> String? {
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            return (json["message"] as? String)
-                ?? (json["error"] as? String)
-                ?? (json["detail"] as? String)
+            let message = (json["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let error = (json["error"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let detail = (json["detail"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if let error, !error.isEmpty, let detail, !detail.isEmpty, error != detail {
+                return "\(error) | detail: \(detail)"
+            }
+            if let message, !message.isEmpty, let detail, !detail.isEmpty, message != detail {
+                return "\(message) | detail: \(detail)"
+            }
+
+            return message
+                ?? error
+                ?? detail
         }
         return String(data: data, encoding: .utf8)
     }
