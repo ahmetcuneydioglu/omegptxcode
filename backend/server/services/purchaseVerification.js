@@ -25,13 +25,34 @@ function getApplePrivateKey() {
   return '';
 }
 
+function getAppleVerificationConfigSummary() {
+  const privateKey = getApplePrivateKey();
+  const trimmedBundleId = String(APPLE_BUNDLE_ID || '').trim();
+
+  return {
+    issuerIdPresent: Boolean(String(APPLE_ISSUER_ID || '').trim()),
+    keyIdPresent: Boolean(String(APPLE_KEY_ID || '').trim()),
+    bundleId: trimmedBundleId || '<missing>',
+    privateKeySource: APPLE_PRIVATE_KEY_BASE64
+      ? 'base64'
+      : APPLE_PRIVATE_KEY
+        ? 'plain'
+        : 'missing',
+    privateKeyDecoded: Boolean(
+      privateKey &&
+      (privateKey.includes('BEGIN PRIVATE KEY') || privateKey.includes('BEGIN EC PRIVATE KEY'))
+    ),
+    isConfigured: Boolean(
+      String(APPLE_ISSUER_ID || '').trim() &&
+      String(APPLE_KEY_ID || '').trim() &&
+      trimmedBundleId &&
+      privateKey
+    ),
+  };
+}
+
 function hasAppleVerificationConfig() {
-  return Boolean(
-    APPLE_ISSUER_ID &&
-    APPLE_KEY_ID &&
-    APPLE_BUNDLE_ID &&
-    getApplePrivateKey()
-  );
+  return getAppleVerificationConfigSummary().isConfigured;
 }
 
 function generateAppleServerApiToken() {
@@ -212,6 +233,7 @@ async function verifyPurchaseWithStore(payload) {
 }
 
 module.exports = {
+  getAppleVerificationConfigSummary,
   verifyPurchaseWithStore,
   purchaseVerificationSchema,
 };

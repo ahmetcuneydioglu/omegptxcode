@@ -96,6 +96,14 @@ final class StoreViewModel {
 
             let purchaseResult = try await storeKitManager.purchase(product)
 
+            if StoreKitManager.isLocalStoreKitTestingEnabled {
+                await applyLocalStoreKitPurchase(
+                    package: package,
+                    purchaseResult: purchaseResult
+                )
+                return
+            }
+
             // CRITICAL: Backend verification right after Apple success.
             let backendJSON = try await verifyPurchaseOnBackend(
                 productId: purchaseResult.productId,
@@ -256,6 +264,19 @@ final class StoreViewModel {
         gems = intValue(in: json, keys: ["gems", "balance", "tickets"], defaultValue: gems)
         dailyStreak = min(max(intValue(in: json, keys: ["dailyStreak", "streak", "day"], defaultValue: dailyStreak), 0), dailyRewards.count - 1)
         canClaim = boolValue(in: json, keys: ["canClaim", "claimAvailable"], defaultValue: canClaim)
+    }
+
+    private func applyLocalStoreKitPurchase(
+        package: StorePackage,
+        purchaseResult: StoreKitPurchaseResult
+    ) async {
+        print("🧪 Local StoreKit mode active. Skipping backend verification for \(package.productId).")
+        await purchaseResult.transaction.finish()
+
+        isGuestMode = false
+        let newBalance = max(gems, appUserStore.currentUser?.gems ?? gems) + package.gemAmount
+        gems = newBalance
+        appUserStore.updateGemBalance(newBalance)
     }
 
     private func intValue(in json: [String: Any], keys: [String], defaultValue: Int) -> Int {

@@ -31,6 +31,22 @@ struct StoreKitPurchaseResult {
 actor StoreKitManager {
     static let shared = StoreKitManager()
 
+    static var isLocalStoreKitTestingEnabled: Bool {
+        let processInfo = ProcessInfo.processInfo
+        if processInfo.arguments.contains("-omegpt-local-storekit") {
+            return true
+        }
+
+        guard let rawValue = processInfo.environment["OMEGPT_LOCAL_STOREKIT"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        else {
+            return false
+        }
+
+        return rawValue == "1" || rawValue == "true" || rawValue == "yes"
+    }
+
     static let gemPackages: [String: Int] = [
         "com.omegpt.gem120": 120,
         "com.omegpt.gem400": 400,

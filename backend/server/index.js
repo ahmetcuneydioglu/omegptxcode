@@ -17,11 +17,16 @@ const { authRateLimit, userActionRateLimit, adminRateLimit } = require('./middle
 const { socketAuthMiddleware } = require('./middlewares/socketAuth');
 const { consumeSocketEvent } = require('./utils/socketRateLimiter');
 const { followSchema, updateProfileSchema, getUserStatusSchema } = require('./utils/validators');
-const { verifyPurchaseWithStore } = require('./services/purchaseVerification');
+const {
+  getAppleVerificationConfigSummary,
+  verifyPurchaseWithStore,
+} = require('./services/purchaseVerification');
 const { ALLOWED_ORIGINS, GOOGLE_CLIENT_IDS, MONGODB_URI, PORT, NODE_ENV } = require('./config/env');
 
 const app = express();
 app.set('trust proxy', 1);
+
+console.log('🍎 Apple verification config summary:', getAppleVerificationConfigSummary());
 
 const allowedOrigins = ALLOWED_ORIGINS;
 
