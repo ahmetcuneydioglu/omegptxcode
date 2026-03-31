@@ -22,7 +22,14 @@ const {
   runAppleLookupDebug,
   verifyPurchaseWithStore,
 } = require('./services/purchaseVerification');
-const { ALLOWED_ORIGINS, GOOGLE_CLIENT_IDS, MONGODB_URI, PORT, NODE_ENV } = require('./config/env');
+const {
+  ALLOWED_ORIGINS,
+  GOOGLE_CLIENT_IDS,
+  MONGODB_URI,
+  PORT,
+  NODE_ENV,
+  REVENUECAT_WEBHOOK_AUTH,
+} = require('./config/env');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -1679,6 +1686,97 @@ const GEM_PACKAGES = {
   "com.omegpt.gem4500": 4500,
   "com.omegpt.gem10000": 10000
 };
+
+const REVENUECAT_PURCHASE_EVENTS = new Set([
+  'INITIAL_PURCHASE',
+  'NON_RENEWING_PURCHASE',
+]);
+
+function normalizedRevenueCatAuthHeader(req) {
+  return String(
+    req.get('Authorization')
+      || req.get('authorization')
+      || req.get('X-RevenueCat-Webhook-Auth')
+      || req.get('x-revenuecat-webhook-auth')
+      || ''
+  ).trim();
+}
+
+function normalizeRevenueCatSecret(value) {
+  return String(value || '').trim();
+}
+
+app.post('/api/store/revenuecat/webhook', async (req, res) => {
+  const expectedSecret = normalizeRevenueCatSecret(REVENUECAT_WEBHOOK_AUTH);
+  const receivedSecret = normalizedRevenueCatAuthHeader(req);
+
+  if (!expectedSecret || receivedSecret !== expectedSecret) {
+    return res.status(401).json({ error: 'Yetkisiz webhook istegi' });
+  }
+
+  const payload = req.body || {};
+  const event = payload.event || {};
+  const eventType = String(event.type || '').trim();
+  const productId = String(event.product_id || '').trim();
+  const appUserId = String(event.app_user_id || '').trim();
+  const transactionId = String(
+    event.transaction_id
+      || event.original_transaction_id
+      || event.id
+      || ''
+  ).trim();
+
+  if (!REVENUECAT_PURCHASE_EVENTS.has(eventType)) {
+    return res.status(200).json({ ok: true, ignored: true, reason: 'UNSUPPORTED_EVENT_TYPE' });
+  }
+
+  if (!mongoose.Types.ObjectId.isValid(appUserId)) {
+    return res.status(200).json({ ok: true, ignored: true, reason: 'INVALID_APP_USER_ID' });
+  }
+
+  const gemAmount = GEM_PACKAGES[productId];
+  if (!gemAmount) {
+    return res.status(200).json({ ok: true, ignored: true, reason: 'UNKNOWN_PRODUCT_ID' });
+  }
+
+  if (!transactionId) {
+    return res.status(400).json({ error: 'Eksik RevenueCat transaction id' });
+  }
+
+  try {
+    const existingPurchase = await Purchase.findOne({ transactionId });
+    if (existingPurchase) {
+      return res.status(200).json({ ok: true, duplicate: true });
+    }
+
+    const user = await User.findById(appUserId);
+    if (!user) {
+      return res.status(404).json({ error: 'Kullanici bulunamadi' });
+    }
+
+    user.gems = (user.gems || 0) + gemAmount;
+    await user.save();
+
+    await Purchase.create({
+      userId: user._id,
+      platform: event.store === 'PLAY_STORE' ? 'android' : 'ios',
+      productId,
+      transactionId,
+      creditedAmount: gemAmount,
+      rawPayload: payload,
+    });
+
+    console.log(`💎 RevenueCat webhook credited ${gemAmount} gems to user ${user._id} for ${productId}`);
+    return res.status(200).json({ ok: true, creditedAmount: gemAmount, newBalance: user.gems });
+  } catch (error) {
+    if (error?.code === 11000) {
+      return res.status(200).json({ ok: true, duplicate: true });
+    }
+
+    console.error('❌ RevenueCat webhook processing error:', error);
+    return res.status(500).json({ error: 'RevenueCat webhook islenemedi' });
+  }
+});
 
 // 2. Satın Alma Doğrulama API'sı
 app.post('/api/store/verify-purchase', requireAuth, userActionRateLimit, async (req, res) => {

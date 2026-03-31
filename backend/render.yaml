@@ -27,5 +27,7 @@ services:
         sync: false
       - key: APPLE_PRIVATE_KEY_BASE64
         sync: false
+      - key: REVENUECAT_WEBHOOK_AUTH
+        sync: false
       - key: ADMIN_PANEL_PASSWORD
         sync: false

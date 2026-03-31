@@ -40,6 +40,16 @@
       debugDocumentVersioning = "YES"
       debugServiceExtension = "internal"
       allowLocationSimulation = "YES">
+      <BuildableProductRunnable
+         runnableDebuggingMode = "0">
+         <BuildableReference
+            BuildableIdentifier = "primary"
+            BlueprintIdentifier = "BCF85AF42F54D5160086A540"
+            BuildableName = "omegptnative.app"
+            BlueprintName = "omegptnative"
+            ReferencedContainer = "container:omegptnative.xcodeproj">
+         </BuildableReference>
+      </BuildableProductRunnable>
       <CommandLineArguments>
          <CommandLineArgument
             argument = "-omegpt-local-storekit"
@@ -53,16 +63,6 @@
             isEnabled = "YES">
          </EnvironmentVariable>
       </EnvironmentVariables>
-      <BuildableProductRunnable
-         runnableDebuggingMode = "0">
-         <BuildableReference
-            BuildableIdentifier = "primary"
-            BlueprintIdentifier = "BCF85AF42F54D5160086A540"
-            BuildableName = "omegptnative.app"
-            BlueprintName = "omegptnative"
-            ReferencedContainer = "container:omegptnative.xcodeproj">
-         </BuildableReference>
-      </BuildableProductRunnable>
       <StoreKitConfigurationFileReference
          identifier = "../../Products.storekit">
       </StoreKitConfigurationFileReference>

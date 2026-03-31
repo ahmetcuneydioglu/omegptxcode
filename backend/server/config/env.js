@@ -28,6 +28,7 @@ module.exports = {
   APPLE_BUNDLE_ID: process.env.APPLE_BUNDLE_ID || '',
   APPLE_PRIVATE_KEY: process.env.APPLE_PRIVATE_KEY || '',
   APPLE_PRIVATE_KEY_BASE64: process.env.APPLE_PRIVATE_KEY_BASE64 || '',
+  REVENUECAT_WEBHOOK_AUTH: process.env.REVENUECAT_WEBHOOK_AUTH || '',
   ADMIN_PANEL_PASSWORD: process.env.ADMIN_PANEL_PASSWORD || 'admin123',
   GOOGLE_CLIENT_IDS: optionalList(
     process.env.GOOGLE_CLIENT_IDS,

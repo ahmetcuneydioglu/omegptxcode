@@ -122,6 +122,7 @@ final class AuthManager {
             isLoggedIn = true
             authErrorMessage = nil
             persistSession()
+            RevenueCatManager.shared.syncUser(appUserID: session.user.id)
         } catch {
             authErrorMessage = "Google ile giriş başarısız."
             isLoggedIn = false
@@ -141,6 +142,7 @@ final class AuthManager {
         accessToken = nil
         isLoggedIn = false
         clearPersistedSession()
+        RevenueCatManager.shared.syncUser(appUserID: nil)
     }
 
     func logout() {
@@ -444,6 +446,7 @@ final class AuthManager {
             isLoggedIn = true
             authErrorMessage = nil
             print("🔐 Restored persisted session for userId=\(user.id)")
+            RevenueCatManager.shared.syncUser(appUserID: user.id)
             Task {
                 await refreshCurrentUserFromServer()
             }

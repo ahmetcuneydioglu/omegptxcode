@@ -12,6 +12,7 @@ struct omegptnativeApp: App {
     init() {
         AuthManager.shared.configureGoogleSignIn()
         AuthManager.shared.checkSession()
+        RevenueCatManager.shared.configureIfNeeded(appUserID: AuthManager.shared.currentUser?.id)
     }
 
     var body: some Scene {

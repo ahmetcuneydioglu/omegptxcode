@@ -14,6 +14,7 @@
 		BC6A439B2F6250BA002EFA54 /* MetalPetal in Frameworks */ = {isa = PBXBuildFile; productRef = BC6A439A2F6250BA002EFA54 /* MetalPetal */; };
 		BCE640A32F5CD50000AF7C56 /* Products.storekit in Resources */ = {isa = PBXBuildFile; fileRef = BCE640A22F5CD50000AF7C56 /* Products.storekit */; };
 		BCE640A52F5CD7F500AF7C56 /* StoreKitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCE640A42F5CD7F500AF7C56 /* StoreKitManager.swift */; };
+		BCE777032F70000100AF7C56 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = BCE777022F70000100AF7C56 /* RevenueCat */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -52,6 +53,7 @@
 				BC46AABC2F57316A009346B0 /* WebRTC in Frameworks */,
 				BC5FA3C12F55BD4500D21AF8 /* GoogleSignInSwift in Frameworks */,
 				BC6A439B2F6250BA002EFA54 /* MetalPetal in Frameworks */,
+				BCE777032F70000100AF7C56 /* RevenueCat in Frameworks */,
 				BC46AAB62F571DAE009346B0 /* SocketIO in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -102,6 +104,7 @@
 				BC46AAB52F571DAE009346B0 /* SocketIO */,
 				BC46AABB2F57316A009346B0 /* WebRTC */,
 				BC6A439A2F6250BA002EFA54 /* MetalPetal */,
+				BCE777022F70000100AF7C56 /* RevenueCat */,
 			);
 			productName = omegptnative;
 			productReference = BCF85AF52F54D5160086A540 /* omegptnative.app */;
@@ -136,6 +139,7 @@
 				BC46AAB42F571DAE009346B0 /* XCRemoteSwiftPackageReference "socket" */,
 				BC46AABA2F57316A009346B0 /* XCRemoteSwiftPackageReference "WebRTC" */,
 				BC6A43992F6250BA002EFA54 /* XCRemoteSwiftPackageReference "MetalPetal" */,
+				BCE777012F70000100AF7C56 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = BCF85AF62F54D5160086A540 /* Products */;
@@ -433,6 +437,14 @@
 				minimumVersion = 1.25.2;
 			};
 		};
+		BCE777012F70000100AF7C56 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/RevenueCat/purchases-ios-spm.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -460,6 +472,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = BC6A43992F6250BA002EFA54 /* XCRemoteSwiftPackageReference "MetalPetal" */;
 			productName = MetalPetal;
+		};
+		BCE777022F70000100AF7C56 /* RevenueCat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BCE777012F70000100AF7C56 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
+			productName = RevenueCat;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -33,6 +33,7 @@ final class StoreViewModel {
     let dailyRewards: [Int] = [5, 10, 15, 20, 25, 30, 50]
 
     private let storeKitManager = StoreKitManager.shared
+    private let revenueCatManager = RevenueCatManager.shared
     private let appUserStore = AppUserStore.shared
     private let networkManager = NetworkManager()
     private var currentDbUserId: String?
@@ -63,6 +64,16 @@ final class StoreViewModel {
 
     func loadProducts(dbUserId: String?) async {
         currentDbUserId = dbUserId
+        if revenueCatManager.isConfigured {
+            do {
+                let products = try await revenueCatManager.fetchPackages()
+                applyRevenueCatProducts(products)
+                return
+            } catch {
+                print("⚠️ RevenueCat offerings failed, StoreKit fallback deneniyor: \(error.localizedDescription)")
+            }
+        }
+
         do {
             let products = try await storeKitManager.requestProducts()
             applyStoreProducts(products)
@@ -89,6 +100,16 @@ final class StoreViewModel {
         currentDbUserId = dbUserId
 
         do {
+            if revenueCatManager.isConfigured {
+                let previousBalance = gems
+                try await revenueCatManager.purchase(productId: package.productId)
+                let synced = await waitForRevenueCatCredit(dbUserId: dbUserId, previousBalance: previousBalance)
+                if !synced {
+                    purchaseErrorMessage = "Odeme alindi. Gemleriniz birkac saniye icinde hesabiniza yansiyacak."
+                }
+                return
+            }
+
             guard let product = await storeKitManager.product(for: package.productId) else {
                 purchaseErrorMessage = "Ürün bilgisi yüklenemedi. Lütfen tekrar dene."
                 return
@@ -257,6 +278,53 @@ final class StoreViewModel {
                 gradientColors: package.gradientColors
             )
         }
+    }
+
+    private func applyRevenueCatProducts(_ products: [RevenueCatStorePackage]) {
+        let productsByID = Dictionary(uniqueKeysWithValues: products.map { ($0.productId, $0) })
+        packages = packages.map { package in
+            guard let product = productsByID[package.productId] else { return package }
+            return StorePackage(
+                productId: package.productId,
+                gemAmount: package.gemAmount,
+                gemAmountTitle: package.gemAmountTitle,
+                comparisonLabel: package.comparisonLabel,
+                saveText: package.saveText,
+                unitPriceText: package.unitPriceText,
+                priceText: product.localizedPriceText,
+                originalPriceText: package.originalPriceText,
+                gradientColors: package.gradientColors
+            )
+        }
+    }
+
+    private func waitForRevenueCatCredit(dbUserId: String?, previousBalance: Int) async -> Bool {
+        guard let dbUserId, !dbUserId.isEmpty else { return false }
+
+        for attempt in 0..<6 {
+            do {
+                let json = try await networkManager.postJSON(path: "/api/store/status")
+                applyStoreStatus(json)
+                let refreshedBalance = intValue(in: json, keys: ["gems", "balance", "tickets"], defaultValue: gems)
+                gems = refreshedBalance
+                appUserStore.updateGemBalance(refreshedBalance)
+                if refreshedBalance > previousBalance {
+                    return true
+                }
+            } catch NetworkError.unauthorized {
+                appUserStore.handleUnauthorized()
+                return false
+            } catch {
+                print("⚠️ RevenueCat kredi kontrolu deneme \(attempt + 1) basarisiz: \(error.localizedDescription)")
+            }
+
+            if attempt < 5 {
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+
+        await fetchStoreStatus(dbUserId: dbUserId)
+        return gems > previousBalance
     }
 
     private func applyStoreStatus(_ json: [String: Any]) {
